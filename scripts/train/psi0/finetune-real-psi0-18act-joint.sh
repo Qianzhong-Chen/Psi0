@@ -23,6 +23,8 @@ echo "Training with $NPROC_PER_NODE GPUs"
 DEFAULT_REPO="hojjunekim/humanoid_18act_15state_joint_psi"
 export task="${1:-$DEFAULT_REPO}"
 export exp="${2:-psi0-18act-joint}"
+shift 2 2>/dev/null || true
+EXTRA_ARGS="$@"
 
 export DATA_ROOT="${DATA_ROOT:-${HF_LEROBOT_HOME:-$HOME/.cache/huggingface/lerobot}}"
 
@@ -85,4 +87,4 @@ finetune_real_psi0_config \
 "
 
 torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=${MASTER_PORT:-29500} scripts/train.py \
-    ${args}
+    ${args} ${EXTRA_ARGS}
