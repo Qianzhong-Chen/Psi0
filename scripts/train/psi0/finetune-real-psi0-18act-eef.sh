@@ -23,8 +23,11 @@ DEFAULT_REPO="hojjunekim/humanoid_18act_15state_eef_psi"
 export task="${1:-$DEFAULT_REPO}"
 export exp="${2:-psi0-18act-eef}"
 
+export DATA_ROOT="${DATA_ROOT:-$HOME/.cache/huggingface/lerobot}"
+
 echo "Task/Dataset: $task"
 echo "Experiment name: $exp"
+echo "Data root: $DATA_ROOT"
 
 args="
 finetune_real_psi0_config \
@@ -49,7 +52,7 @@ finetune_real_psi0_config \
 --train.lr_scheduler_kwargs.weight_decay=1e-6 \
 --train.lr_scheduler_kwargs.betas 0.95 0.999 \
 --log.report_to=wandb \
---data.root_dir=$HOME/.cache/huggingface/lerobot \
+--data.root_dir=$DATA_ROOT \
 --data.train_repo_ids=$task \
 --data.transform.repack.action-chunk-size=30 \
 --data.transform.field.stat-path=meta/stats.json \
