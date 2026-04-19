@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# Fine-tune Psi0 with 18-dim joint-space actions for Sonic deploy.
-# Usage: ./finetune-real-psi0-18act-joint.sh [task] [exp]
+# Full fine-tune Psi0 with 18-dim joint-space actions (VLM + action head).
+# Usage: ./finetune-real-psi0-18act-joint-full.sh [task] [exp]
+#
+# Tunes the entire model including Qwen3-VL-2B backbone.
 #
 # Action (18): L_arm(7) + R_arm(7) + vx + vy + vyaw + height
 # State  (15): L_arm(7) + R_arm(7) + height
@@ -22,7 +24,7 @@ echo "Training with $NPROC_PER_NODE GPUs"
 # Default dataset and experiment name
 DEFAULT_REPO="hojjunekim/humanoid_18act_15state_joint_psi"
 export task="${1:-$DEFAULT_REPO}"
-export exp="${2:-psi0-18act-joint}"
+export exp="${2:-psi0-18act-joint-full}"
 shift 2 2>/dev/null || true
 EXTRA_ARGS="$@"
 
@@ -40,11 +42,11 @@ finetune_real_psi0_config \
 --train.resume_from_checkpoint=latest \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=64 \
+--train.train_batch_size=16 \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=2 \
---train.gradient_accumulation_steps=1 \
---train.learning_rate=1e-4 \
+--train.gradient_accumulation_steps=4 \
+--train.learning_rate=5e-5 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
 --train.warmup_steps=1000 \
@@ -79,7 +81,7 @@ finetune_real_psi0_config \
 --model.observation-horizon=1 \
 --model.odim=15 \
 --model.view_feature_dim=2048 \
---model.no-tune-vlm \
+--model.tune-vlm \
 --model.no-use_film \
 --model.no-combined_temb \
 --model.rtc \

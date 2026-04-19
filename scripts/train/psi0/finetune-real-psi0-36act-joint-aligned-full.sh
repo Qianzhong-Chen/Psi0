@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# Fine-tune Psi0 with joint-space actions aligned to original 36-dim format.
-# Usage: ./finetune-real-psi0-36act-joint-aligned.sh [task] [exp]
+# Full fine-tune Psi0 with joint-space actions aligned to original 36-dim format (VLM + action head).
+# Usage: ./finetune-real-psi0-36act-joint-aligned-full.sh [task] [exp]
+#
+# Tunes the entire model including Qwen3-VL-2B backbone.
 #
 # Dataset must be pre-built with 36-dim vectors where dims match original Psi0 ordering:
 #   Original: hand_joints(14) + arm_joints(14) + RPY(3) + height(1) + vx(1) + vy(1) + vyaw(1) + target_yaw(1)
@@ -42,7 +44,7 @@ echo "Training with $NPROC_PER_NODE GPUs"
 # Default dataset and experiment name
 DEFAULT_REPO="hojjunekim/humanoid_36act_aligned_joint_psi"
 export task="${1:-$DEFAULT_REPO}"
-export exp="${2:-psi0-36act-joint-aligned}"
+export exp="${2:-psi0-36act-joint-aligned-full}"
 shift 2 2>/dev/null || true
 EXTRA_ARGS="$@"
 
@@ -60,11 +62,11 @@ finetune_real_psi0_config \
 --train.resume_from_checkpoint=latest \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=64 \
+--train.train_batch_size=16 \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=2 \
---train.gradient_accumulation_steps=1 \
---train.learning_rate=1e-4 \
+--train.gradient_accumulation_steps=4 \
+--train.learning_rate=5e-5 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
 --train.warmup_steps=1000 \
@@ -99,7 +101,7 @@ finetune_real_psi0_config \
 --model.observation-horizon=1 \
 --model.odim=36 \
 --model.view_feature_dim=2048 \
---model.no-tune-vlm \
+--model.tune-vlm \
 --model.no-use_film \
 --model.no-combined_temb \
 --model.rtc \
