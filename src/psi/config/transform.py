@@ -344,9 +344,16 @@ class RealRepackTransform(LerobotRepackTransform):
             actions = data[self.action_key]
             mask = np.ones_like(actions, dtype=bool)
 
+        def _squeeze_img(img):
+            if hasattr(img, "dim") and img.dim() == 4:
+                img = img[-1]
+            elif isinstance(img, np.ndarray) and img.ndim == 4:
+                img = img[-1]
+            return pt_to_pil(img, normalized=False)
+
         result = {
-            "observations": [ 
-                pt_to_pil(data[key], normalized=False)
+            "observations": [
+                _squeeze_img(data[key])
                 for key in self.image_keys
             ], # list of PIL Image
             "states": np.array(states, dtype=np.float32), # (To, Da)

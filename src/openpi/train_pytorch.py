@@ -501,6 +501,12 @@ def train_loop(config: _config.TrainConfig):
             state_dict["paligemma_with_expert.paligemma.lm_head.weight"]
 
         _model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
+        # Remove keys with shape mismatch (e.g., action_dim differs from checkpoint)
+        model_state = _model.state_dict()
+        for k in list(state_dict.keys()):
+            if k in model_state and state_dict[k].shape != model_state[k].shape:
+                logging.info(f"Skipping {k}: shape mismatch {state_dict[k].shape} vs {model_state[k].shape}")
+                del state_dict[k]
         missing_keys, unexpected_keys = _model.load_state_dict(state_dict, strict=False)
         # missing_keys, unexpected_keys = safetensors.torch.load_model(
         #     (model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model), model_path, strict=False
