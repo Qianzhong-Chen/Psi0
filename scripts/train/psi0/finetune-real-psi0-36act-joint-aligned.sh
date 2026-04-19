@@ -59,7 +59,7 @@ finetune_real_psi0_config \
 --train.mixed_precision=bf16 \
 --train.train_batch_size=64 \
 --train.num_workers=0 \
---train.max_checkpoints_to_keep=5 \
+--train.max_checkpoints_to_keep=2 \
 --train.gradient_accumulation_steps=1 \
 --train.learning_rate=1e-4 \
 --train.max_training_steps=40000 \
