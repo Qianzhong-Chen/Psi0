@@ -23,7 +23,7 @@ DEFAULT_REPO="hojjunekim/humanoid_18act_15state_eef_psi"
 export task="${1:-$DEFAULT_REPO}"
 export exp="${2:-psi0-18act-eef}"
 
-export DATA_ROOT="${DATA_ROOT:-$HOME/.cache/huggingface/lerobot}"
+export DATA_ROOT="${DATA_ROOT:-${HF_LEROBOT_HOME:-$HOME/.cache/huggingface/lerobot}}"
 
 echo "Task/Dataset: $task"
 echo "Experiment name: $exp"
