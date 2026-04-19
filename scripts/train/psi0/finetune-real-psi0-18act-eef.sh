@@ -82,5 +82,5 @@ finetune_real_psi0_config \
 --model.max-delay=8
 "
 
-torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=29500 scripts/train.py \
+torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=${MASTER_PORT:-29500} scripts/train.py \
     ${args}
