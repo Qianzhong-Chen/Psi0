@@ -36,7 +36,7 @@ finetune_real_psi0_config \
 --train.name=finetune \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=16 \
+--train.train_batch_size=64 \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=5 \
 --train.gradient_accumulation_steps=1 \

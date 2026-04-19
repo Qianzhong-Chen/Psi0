@@ -1,14 +1,16 @@
 #!/bin/bash
 
-# Fine-tune Psi0 with 18-dim joint-space actions for Sonic deploy.
-# Usage: ./finetune-real-psi0-18act-joint.sh [task] [exp]
+# Full fine-tune Psi0 with 18-dim EEF actions (VLM + action head).
+# Usage: ./finetune-real-psi0-18act-eef-full.sh [task] [exp]
 #
-# Action (18): L_arm(7) + R_arm(7) + vx + vy + vyaw + height
-# State  (15): L_arm(7) + R_arm(7) + height
+# Unlike the frozen-VLM version, this tunes the entire model including
+# Qwen3-VL-2B backbone. Requires more VRAM (~40GB+ on single GPU).
 #
-# Deploy path: VLA → joint targets → Sonic C++ → motor commands
-# NOTE: C++ deploy needs modification to accept joint-space upper body targets.
-# Dataset: hojjunekim/humanoid_18act_15state_joint_psi (or custom task)
+# Action (18): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + vx + vy + vyaw + height
+# State  (15): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + height
+#
+# Deploy path: VLA → EEF poses → Sonic C++ (IK internally) → motor commands
+# Dataset: hojjunekim/humanoid_18act_15state_eef_psi (or custom task)
 
 export OMP_NUM_THREADS=32
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -20,9 +22,9 @@ ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
 # Default dataset and experiment name
-DEFAULT_REPO="hojjunekim/humanoid_18act_15state_joint_psi"
+DEFAULT_REPO="hojjunekim/humanoid_18act_15state_eef_psi"
 export task="${1:-$DEFAULT_REPO}"
-export exp="${2:-psi0-18act-joint}"
+export exp="${2:-psi0-18act-eef-full}"
 
 export DATA_ROOT="${DATA_ROOT:-${HF_LEROBOT_HOME:-$HOME/.cache/huggingface/lerobot}}"
 
@@ -37,11 +39,11 @@ finetune_real_psi0_config \
 --train.name=finetune \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=64 \
+--train.train_batch_size=16 \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=5 \
---train.gradient_accumulation_steps=1 \
---train.learning_rate=1e-4 \
+--train.gradient_accumulation_steps=4 \
+--train.learning_rate=5e-5 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
 --train.warmup_steps=1000 \
@@ -76,7 +78,6 @@ finetune_real_psi0_config \
 --model.observation-horizon=1 \
 --model.odim=15 \
 --model.view_feature_dim=2048 \
---model.no-tune-vlm \
 --model.no-use_film \
 --model.no-combined_temb \
 --model.rtc \
