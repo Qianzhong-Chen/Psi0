@@ -1,36 +1,16 @@
 #!/bin/bash
 
-# Full fine-tune Psi0 with joint-space actions aligned to original 36-dim format (VLM + action head).
-# Usage: ./finetune-real-psi0-36act-joint-aligned-full.sh [task] [exp]
+# Full fine-tune Psi0 with 18-dim EEF actions (VLM + action head).
+# Usage: ./finetune-real-psi0-18act-eef-full.sh [task] [exp]
 #
-# Tunes the entire model including Qwen3-VL-2B backbone.
+# Unlike the frozen-VLM version, this tunes the entire model including
+# Qwen3-VL-2B backbone. Requires more VRAM (~40GB+ on single GPU).
 #
-# Dataset must be pre-built with 36-dim vectors where dims match original Psi0 ordering:
-#   Original: hand_joints(14) + arm_joints(14) + RPY(3) + height(1) + vx(1) + vy(1) + vyaw(1) + target_yaw(1)
+# Action (18): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + vx + vy + vyaw + height
+# State  (15): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + height
 #
-#   Action (36, aligned):
-#     [0-13]  = 0          (hand joints, unused)
-#     [14-20] = L_arm(7)   (matches original left arm)
-#     [21-27] = R_arm(7)   (matches original right arm)
-#     [28-30] = 0          (RPY, unused)
-#     [31]    = height
-#     [32]    = vx
-#     [33]    = vy
-#     [34]    = vyaw
-#     [35]    = 0          (target_yaw, unused)
-#
-#   State (36, aligned):
-#     [0-13]  = 0          (hand joints, unused)
-#     [14-20] = L_arm(7)
-#     [21-27] = R_arm(7)
-#     [28-30] = 0          (RPY, unused)
-#     [31]    = height
-#     [32-35] = 0
-#
-# Pretrained weights transfer semantically for arm joints and locomotion dims.
-# Deploy path: VLA → extract dims 14-27,31-34 → joint targets + loco → Sonic C++
-# NOTE: C++ deploy needs modification to accept joint-space upper body targets.
-# Dataset: hojjunekim/humanoid_36act_aligned_joint_psi (or custom task)
+# Deploy path: VLA → EEF poses → Sonic C++ (IK internally) → motor commands
+# Dataset: hojjunekim/humanoid_18act_15state_eef_psi (or custom task)
 
 export OMP_NUM_THREADS=32
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -42,9 +22,9 @@ ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
 # Default dataset and experiment name
-DEFAULT_REPO="hojjunekim/humanoid_36act_aligned_joint_psi"
+DEFAULT_REPO="hojjunekim/humanoid_18act_15state_eef_psi"
 export task="${1:-$DEFAULT_REPO}"
-export exp="${2:-psi0-36act-joint-aligned-full}"
+export exp="${2:-psi0-18act-eef-full}"
 shift 2 2>/dev/null || true
 EXTRA_ARGS="$@"
 
@@ -62,10 +42,10 @@ finetune_real_psi0_config \
 --train.resume_from_checkpoint=latest \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
---train.train_batch_size=16 \
+--train.train_batch_size=64 \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=2 \
---train.gradient_accumulation_steps=4 \
+--train.gradient_accumulation_steps=1 \
 --train.learning_rate=5e-5 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
@@ -96,10 +76,10 @@ finetune_real_psi0_config \
 --model.train-diffusion-steps=1000 \
 --model.n_conditions=0 \
 --model.action-chunk-size=30 \
---model.action-dim=36 \
+--model.action-dim=18 \
 --model.action-exec-horizon=30 \
 --model.observation-horizon=1 \
---model.odim=36 \
+--model.odim=15 \
 --model.view_feature_dim=2048 \
 --model.tune-vlm \
 --model.no-use_film \
