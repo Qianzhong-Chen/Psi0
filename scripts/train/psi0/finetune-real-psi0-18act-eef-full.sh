@@ -78,6 +78,7 @@ finetune_real_psi0_config \
 --model.observation-horizon=1 \
 --model.odim=15 \
 --model.view_feature_dim=2048 \
+--model.tune-vlm \
 --model.no-use_film \
 --model.no-combined_temb \
 --model.rtc \
