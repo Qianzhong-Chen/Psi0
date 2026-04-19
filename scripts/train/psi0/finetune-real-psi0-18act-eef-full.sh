@@ -37,6 +37,7 @@ finetune_real_psi0_config \
 --seed=292285 \
 --exp=$exp \
 --train.name=finetune \
+--train.resume_from_checkpoint=latest \
 --train.data_parallel=ddp \
 --train.mixed_precision=bf16 \
 --train.train_batch_size=16 \
