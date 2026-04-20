@@ -1,7 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from dotenv import load_dotenv
-assert load_dotenv(), "Failed to load .env file. Make sure it exists and is properly formatted."
+
+_ROOT = Path(__file__).resolve().parent.parent
+_ENV = _ROOT / ".env"
+if not _ENV.is_file():
+    raise FileNotFoundError(
+        f"Missing {_ENV}. Copy {_ROOT / '.env.sample'} to {_ENV} and fill in values."
+    )
+# load_dotenv() returns False if no key/value pairs were applied (e.g. empty .env); file still counts as loaded.
+load_dotenv(_ENV)
 import os
 import re
 import torch

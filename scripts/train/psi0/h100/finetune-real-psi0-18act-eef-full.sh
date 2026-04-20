@@ -1,7 +1,13 @@
 #!/bin/bash
 
 # Full fine-tune Psi0 with 18-dim EEF actions (VLM + action head).
-# Usage: ./finetune-real-psi0-18act-eef-full.sh [task] [exp]
+# Usage: ./finetune-real-psi0-18act-eef-full.sh [task] [exp] [extra tyro args...]
+#
+# Resume: --train.resume_from_checkpoint=latest (default below) continues the
+# latest run under .runs/finetune/ whose folder name starts with ${exp}. (see
+# LaunchConfig in src/psi/config/config.py). Re-run from repo root so .runs paths
+# stay consistent. For a fresh run, change [exp] or pass e.g.
+# --train.resume-from-checkpoint none
 #
 # Unlike the frozen-VLM version, this tunes the entire model including
 # Qwen3-VL-2B backbone. Requires more VRAM (~40GB+ on single GPU).

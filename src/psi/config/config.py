@@ -158,43 +158,109 @@ class LaunchConfig(BaseModel):
     model: ModelConfig
     
     def model_post_init(self, __context: Any) -> None:
-        is_multinode = (
-            "SLURM_NODELIST" in os.environ and
-            len(os.environ["SLURM_NODELIST"].split(",")) > 1
-        )
-        if is_multinode:
-            assert self.timestamp is not None, "Timestamp must be provided for multi-node training, eg., --timestamp=$(date +\"%y%m%d%H%M\")"
+        def extract_timestamp(folder_name: str) -> str:
+            parts = folder_name.split(".")
+            return parts[-1] if len(parts) > 1 else ""
 
-        def extract_timestamp(folder_name):
-            parts = folder_name.split('.')
-            return parts[-1] if len(parts) > 1 else ''
+        def resolve_run_dir_from_resume_path(resume_path: str) -> str | None:
+            """Map .../run, .../run/checkpoints, or .../run/checkpoints/ckpt_N -> .../run."""
+            rk_abs = os.path.abspath(os.path.expanduser(resume_path))
+            if not os.path.isdir(rk_abs):
+                return None
+            base = os.path.basename(rk_abs.rstrip(os.sep))
+            if base.startswith("ckpt_"):
+                return os.path.dirname(os.path.dirname(rk_abs))
+            if base == "checkpoints":
+                return os.path.dirname(rk_abs)
+            return rk_abs
+
+        def list_resumable_runs(trainer_dir: str) -> list[str]:
+            """Run folder basenames that belong to this exp and contain at least one ckpt_*."""
+            exp_prefix = f"{self.exp}."
+            debug_prefix = f"debug-{exp_prefix}"
+            filtered: list[str] = []
+            if not os.path.isdir(trainer_dir):
+                return filtered
+            for f in os.listdir(trainer_dir):
+                if not (f.startswith(exp_prefix) or f.startswith(debug_prefix)):
+                    continue
+                run_path = os.path.join(trainer_dir, f)
+                if not os.path.isdir(run_path):
+                    continue
+                ckpt_root = os.path.join(run_path, "checkpoints")
+                if not os.path.isdir(ckpt_root):
+                    continue
+                if not any(
+                    d.startswith("ckpt_") and os.path.isdir(os.path.join(ckpt_root, d))
+                    for d in os.listdir(ckpt_root)
+                ):
+                    continue
+                filtered.append(f)
+            return filtered
+
+        def newest_checkpoint_activity(trainer_dir: str, run_folder: str) -> float:
+            ckpt_root = os.path.join(trainer_dir, run_folder, "checkpoints")
+            m = os.path.getmtime(ckpt_root)
+            for d in os.listdir(ckpt_root):
+                if d.startswith("ckpt_"):
+                    p = os.path.join(ckpt_root, d)
+                    if os.path.isdir(p):
+                        m = max(m, os.path.getmtime(p))
+            return m
+
+        trainer_dir = os.path.join(self.train.output_dir, self.train.name)
 
         if self.train.resume_from_checkpoint == "latest":
-            """ auto resume by looking up timestamp or latest run folder """
             auto_resume_success = False
-            trainer_dir = os.path.join(self.train.output_dir, self.train.name)
-            if os.path.exists(trainer_dir):
-                # Sort folders by timestamp (assumed to be last part after a dot)
-                runs = dict(sorted({
-                    extract_timestamp(f): os.path.join(trainer_dir, f) for f in os.listdir(trainer_dir)
-                }.items(), reverse=True))
+            filtered = list_resumable_runs(trainer_dir)
+            runs = dict(
+                sorted(
+                    {
+                        extract_timestamp(f): os.path.join(trainer_dir, f)
+                        for f in filtered
+                    }.items(),
+                    reverse=True,
+                )
+            )
 
-                if self.timestamp is not None and self.timestamp in runs:
-                    print(f"Will resume latest run with specified timestamp: {self.timestamp}")
-                    self.train.resume_from_checkpoint = runs[self.timestamp]
-                    auto_resume_success = True
+            if self.timestamp is not None and self.timestamp in runs:
+                print(f"Will resume run for specified timestamp: {self.timestamp}")
+                self.train.resume_from_checkpoint = runs[self.timestamp]
+                auto_resume_success = True
+            elif len(filtered) > 0:
+                best_folder = max(
+                    filtered,
+                    key=lambda name: newest_checkpoint_activity(trainer_dir, name),
+                )
+                ts = extract_timestamp(best_folder)
+                print(
+                    f"Will auto-resume latest matching experiment run {best_folder} "
+                    f"(timestamp {ts}; picked by newest checkpoint activity under {trainer_dir})"
+                )
+                self.timestamp = ts
+                self.train.resume_from_checkpoint = os.path.join(trainer_dir, best_folder)
+                auto_resume_success = True
 
-                """ elif len(runs) > 0:
-                    latest_timestamp = next(iter(runs))
-                    print(f"Will auto-resume from latest run with timestamp: {latest_timestamp}")
-                    if self.timestamp is not None and self.timestamp != latest_timestamp:
-                        print(f"Overriding timestamp {self.timestamp} with latest timestamp {latest_timestamp}")
-                    self.timestamp = latest_timestamp
-                    self.train.resume_from_checkpoint = runs[latest_timestamp]
-                    auto_resume_success = True """
-            
             if not auto_resume_success:
                 self.train.resume_from_checkpoint = None
+
+        rk = self.train.resume_from_checkpoint
+        if rk not in (None, "latest"):
+            run_dir = resolve_run_dir_from_resume_path(str(rk))
+            if run_dir is not None:
+                ts_candidate = extract_timestamp(os.path.basename(run_dir))
+                if ts_candidate.isdigit() and len(ts_candidate) >= 10:
+                    self.timestamp = ts_candidate
+
+        is_multinode = (
+            "SLURM_NODELIST" in os.environ
+            and len(os.environ["SLURM_NODELIST"].split(",")) > 1
+        )
+        if is_multinode:
+            assert self.timestamp is not None, (
+                "Timestamp must be provided for multi-node training, eg., "
+                '--timestamp=$(date +"%y%m%d%H%M"), or rely on auto-resume from latest.'
+            )
 
         if self.timestamp is None:
             self.timestamp = datetime.datetime.now().strftime("%y%m%d%H%M")
