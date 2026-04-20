@@ -45,9 +45,6 @@ export TRACK
 NGPU=8
 MAX_SEG="${MAX_SEG:-25}"
 
-CONTAINER="vllm/vllm-openai:v0.12.0"
-MOUNTS="/lustre:/lustre,/lustre/fsw/portfolios/coreai/users/sauravm:/sauravm,/lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais:/jiankais"
-
 mkdir -p logs
 
 if ! [[ "${SEG}" =~ ^[0-9]+$ ]] || [[ "${SEG}" -lt 1 ]]; then
@@ -101,24 +98,25 @@ echo "Starting workload..."
 set +e
 srun \
     --ntasks=1 \
+    --time="${SLURM_TIMELIMIT:-04:00:00}" \
     --gpus="${NGPU}" \
-    --container-image="${CONTAINER}" \
-    --container-mounts="${MOUNTS}" \
-    --no-container-mount-home \
     bash -lc '
         set -euo pipefail
 
         source /lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais/cache_env.sh
         source /lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais/Apps/miniforge3/etc/profile.d/conda.sh
+        # conda activate.d hooks (e.g. cuda-nvcc) reference unset vars; nounset breaks them.
+        set +u
         conda activate psi0
-
         cd /lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais/Programs/hojune/Psi0-hojune
         source .venv-psi/bin/activate
+        set -u
         export WANDB_API_KEY=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
-        export CUDA_HOME=\${CONDA_PREFIX}
-        export LD_LIBRARY_PATH="\${CONDA_PREFIX}/lib:\${LD_LIBRARY_PATH:-}"
-        export CPATH="\${CONDA_PREFIX}/targets/x86_64-linux/include:\${CONDA_PREFIX}/include:\${CPATH:-}"
-        export LIBRARY_PATH="\${CONDA_PREFIX}/targets/x86_64-linux/lib:\${CONDA_PREFIX}/lib:\${LIBRARY_PATH:-}"
+        # Single-quoted bash -lc: do NOT use \${CONDA_PREFIX} — that leaves a literal ${CONDA_PREFIX} in CUDA_HOME.
+        export CUDA_HOME="${CONDA_PREFIX}"
+        export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+        export CPATH="${CONDA_PREFIX}/targets/x86_64-linux/include:${CONDA_PREFIX}/include:${CPATH:-}"
+        export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
         case "${TRACK}" in
             eef)
