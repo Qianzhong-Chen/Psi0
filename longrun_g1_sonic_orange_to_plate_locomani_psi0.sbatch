@@ -5,7 +5,7 @@
 #SBATCH --gpus=4
 #SBATCH --gpus-per-node=4
 #SBATCH --ntasks-per-node=1
-#SBATCH --mem=250G
+#SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@300
 #SBATCH -J g1_sonic_orange_plate_locomani_longrun
