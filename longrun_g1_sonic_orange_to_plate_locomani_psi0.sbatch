@@ -8,32 +8,32 @@
 #SBATCH --mem=250G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@300
-#SBATCH -J g1_sonic_orange_plate_mani_longrun
+#SBATCH -J g1_sonic_orange_plate_locomani_longrun
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# sbatch --job-name=eef longrun_g1_sonic_orange_to_plate_mani_psi0.sbatch eef
-# sbatch --job-name=full longrun_g1_sonic_orange_to_plate_mani_psi0.sbatch full
-# Arg1 TRACK — which finetune (dataset: hojjunekim/g1_sonic_orange_to_plate_mani_psi0):
-#   eef  -> finetune-real-psi0-18act-eef.sh + exp default: mani-18act-eef-head (matches local:
-#           ./scripts/train/psi0/finetune-real-psi0-18act-eef.sh hojjunekim/g1_sonic_orange_to_plate_mani_psi0 mani-18act-eef-head)
-#   full -> finetune-real-psi0-18act-eef-full.sh + exp default: mani-18act-eef-full (local:
-#           ./scripts/train/psi0/finetune-real-psi0-18act-eef-full.sh hojjunekim/g1_sonic_orange_to_plate_mani_psi0 mani-18act-eef-full)
-#   Override: PSI0_G1_MANI_EXP_EEF / PSI0_G1_MANI_EXP_FULL
+# sbatch --job-name=eef longrun_g1_sonic_orange_to_plate_locomani_psi0.sbatch eef
+# sbatch --job-name=full longrun_g1_sonic_orange_to_plate_locomani_psi0.sbatch full
+# Arg1 TRACK — which finetune (dataset: hojjunekim/g1_sonic_orange_to_plate_locomani_psi0):
+#   eef  -> finetune-real-psi0-18act-eef.sh + exp default: locomani-18act-eef-head (matches local:
+#           ./scripts/train/psi0/finetune-real-psi0-18act-eef.sh hojjunekim/g1_sonic_orange_to_plate_locomani_psi0 locomani-18act-eef-head)
+#   full -> finetune-real-psi0-18act-eef-full.sh + exp default: locomani-18act-eef-full (local:
+#           ./scripts/train/psi0/finetune-real-psi0-18act-eef-full.sh hojjunekim/g1_sonic_orange_to_plate_locomani_psi0 locomani-18act-eef-full)
+#   Override: PSI0_G1_LOCOMANI_EXP_EEF / PSI0_G1_LOCOMANI_EXP_FULL
 #
 # Arg2 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue; no state files.
 #
 # First job (example):
-#   sbatch --job-name=g1_sonic_mani_eef  /path/to/longrun_g1_sonic_orange_to_plate_mani_psi0.sbatch eef
-#   sbatch --job-name=g1_sonic_mani_full /path/to/longrun_g1_sonic_orange_to_plate_mani_psi0.sbatch full 1
+#   sbatch --job-name=g1_sonic_locomani_eef  /path/to/longrun_g1_sonic_orange_to_plate_locomani_psi0.sbatch eef
+#   sbatch --job-name=g1_sonic_locomani_full /path/to/longrun_g1_sonic_orange_to_plate_locomani_psi0.sbatch full 1
 # Parallel chains: use distinct --job-name so singleton does not block each other.
 #
 # Resume: latest ckpt is scoped per --exp (eef vs full use different prefixes). See src/psi/config/config.py
 #
 # Hardware: 4xH100. Grad-accum=2 baked in below so effective batch = 64*2*4 = 512
-# (matches the original 8-GPU baseline). Each optimizer step is ~4x wall-clock
+# (matches the 8xH100 mani sbatch baseline). Each optimizer step is ~4x wall-clock
 # slower than the 8-GPU run (½ parallelism × 2× micro-batches), so you may need to
 # override MAX_SEG (default 25) to extend the chain — `MAX_SEG=100 sbatch ...`.
 TRACK="${1:-eef}"
@@ -44,8 +44,8 @@ export TRACK
 # User config
 #
 # Optional tyro extras (after task + exp in each *.sh):
-#   export PSI0_G1_MANI_EXP_EEF='...'     # --exp for eef (default mani-18act-eef-head)
-#   export PSI0_G1_MANI_EXP_FULL='...'    # --exp for full (default mani-18act-eef-full)
+#   export PSI0_G1_LOCOMANI_EXP_EEF='...'     # --exp for eef (default locomani-18act-eef-head)
+#   export PSI0_G1_LOCOMANI_EXP_FULL='...'    # --exp for full (default locomani-18act-eef-full)
 #   export PSI0_FINETUNE_EXTRA_ARGS_EEF='...'
 #   export PSI0_FINETUNE_EXTRA_ARGS_FULL='...'
 #   export PSI0_FINETUNE_EXTRA_ARGS='...'  # fallback for both tracks
@@ -78,7 +78,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: TRACK=${TRACK} SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-g1_sonic_orange_plate_mani_longrun}" "$0" "${TRACK}" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-g1_sonic_orange_plate_locomani_longrun}" "$0" "${TRACK}" "$((SEG + 1))"
 fi
 
 ############################
@@ -129,10 +129,10 @@ srun \
         export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
         # Distinct --exp per track -> .runs/finetune/<exp>.* ; avoid psi0-18act-eef-full (shared with unrelated runs).
-        G1_MANI_EXP_EEF="${PSI0_G1_MANI_EXP_EEF:-mani-18act-eef-head}"
-        G1_MANI_EXP_FULL="${PSI0_G1_MANI_EXP_FULL:-mani-18act-eef-full}"
+        G1_LOCOMANI_EXP_EEF="${PSI0_G1_LOCOMANI_EXP_EEF:-locomani-18act-eef-head}"
+        G1_LOCOMANI_EXP_FULL="${PSI0_G1_LOCOMANI_EXP_FULL:-locomani-18act-eef-full}"
 
-        # 4xH100 grad-accum default to preserve effective batch 512 (matches original 8-GPU baseline).
+        # 4xH100 grad-accum default to preserve effective batch 512 (matches 8-GPU mani sbatch).
         # User-supplied PSI0_FINETUNE_EXTRA_ARGS_* comes after and wins via tyro last-value rule.
         DEFAULT_GA="--train.gradient_accumulation_steps=2"
 
@@ -140,12 +140,12 @@ srun \
             eef)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_EEF:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
-                    hojjunekim/g1_sonic_orange_to_plate_mani_psi0 "${G1_MANI_EXP_EEF}" ${DEFAULT_GA} ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_locomani_psi0 "${G1_LOCOMANI_EXP_EEF}" ${DEFAULT_GA} ${EXTRA}
                 ;;
             full)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_FULL:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-18act-eef-full.sh \
-                    hojjunekim/g1_sonic_orange_to_plate_mani_psi0 "${G1_MANI_EXP_FULL}" ${DEFAULT_GA} ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_locomani_psi0 "${G1_LOCOMANI_EXP_FULL}" ${DEFAULT_GA} ${EXTRA}
                 ;;
             *)
                 echo "Unknown TRACK=${TRACK}. Use: eef | full" >&2
