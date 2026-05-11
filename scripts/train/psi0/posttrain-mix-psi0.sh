@@ -75,5 +75,8 @@ args="posttrain_mix_psi0_config \
 --model.no-combined_temb
 "
 
-torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=29500 scripts/train.py \
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_ensure_master_port.sh"
+
+torchrun --nproc_per_node=$NPROC_PER_NODE --master_port="${MASTER_PORT}" scripts/train.py \
     ${args}
