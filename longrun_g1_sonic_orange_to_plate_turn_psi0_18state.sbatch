@@ -107,6 +107,9 @@ graceful_exit() {
 
 trap graceful_exit SIGTERM SIGINT
 
+# shellcheck source=scripts/ckpt_guard.sh
+source ./scripts/ckpt_guard.sh
+
 ############################
 # Main workload
 ############################
