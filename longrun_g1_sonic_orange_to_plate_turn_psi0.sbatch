@@ -7,7 +7,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
-#SBATCH --signal=B:TERM@300
+#SBATCH --signal=B:TERM@600
 #SBATCH -J g1_sonic_orange_plate_turn_longrun
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
