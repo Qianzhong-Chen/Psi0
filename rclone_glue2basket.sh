@@ -1,8 +1,17 @@
 #!/bin/bash
 cd /home/jiankais/lustre_jiankais/Programs/hojune/Psi0-hojune/.runs/finetune/ || exit 1
 
-d=glue2basket-teleop.real.flow1000.cosine.lr5.0e-05.b512.gpus8.2605081506
-out=stanford:Hojune/ckpts/glue2basket-teleop-40000
+# d=glue2basket-teleop.real.flow1000.cosine.lr5.0e-05.b512.gpus8.2605081506
+# out=stanford:Hojune/ckpts/glue2basket-teleop-40000
+# d=locomani-18act-eef-full.real.flow1000.cosine.lr5.0e-05.b512.gpus4.2605102318
+# out=stanford:Hojune/ckpts/locomani-18act-eef-full-40000
+# d=locomani-18act-eef-head.real.flow1000.cosine.lr1.0e-04.b512.gpus4.2605102306
+# out=stanford:Hojune/ckpts/locomani-18act-eef-head-40000
+# d=mani-18act-eef-head.real.flow1000.cosine.lr1.0e-04.b512.gpus4.2605102246
+# out=stanford:Hojune/ckpts/mani-18act-eef-head-40000
+d=mani-18act-eef-full.real.flow1000.cosine.lr5.0e-05.b512.gpus4.2605102246
+out=stanford:Hojune/ckpts/mani-18act-eef-full-40000
+
 
 # Throttle to avoid Drive API 403 rateLimitExceeded.
 # rclone's default shared client_id is rate-limited globally; keep tpslimit low.
