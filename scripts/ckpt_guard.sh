@@ -15,10 +15,17 @@
 # This guard quarantines the broken newest ckpt before srun so auto-resume
 # falls back to the previous good one.
 #
-# Behaviour: for each .runs/finetune/<run>/checkpoints/, repeatedly rename the
-# newest ckpt_<digits> to ckpt_<digits>.broken.<jobid> while it looks
-# corrupted, until the newest one is healthy (or none left). Quarantined dirs
-# are kept on disk for postmortem - the regex below skips them on next pass.
+# Behaviour: for each .runs/finetune/<run>/checkpoints/, repeatedly MOVE the
+# newest ckpt_<digits> to <run>/checkpoints_broken/ while it looks corrupted,
+# until the newest remaining one is healthy (or none left). Quarantined dirs
+# are kept on disk for postmortem.
+#
+# Why move to a sibling dir (and not rename in place):
+# trainer.resume_from_checkpoint() does os.listdir(<run>/checkpoints) and then
+# `int(name.split("_")[1])` for sort. Any leftover sibling like
+# `ckpt_27500.broken` makes that int() throw ValueError on every restart, so
+# the trainer can never even reach the safetensors check. Moving out of
+# checkpoints/ entirely keeps trainer's listdir clean.
 
 validate_checkpoints() {
     local runs_dir="${PWD}/.runs/finetune"
@@ -27,10 +34,13 @@ validate_checkpoints() {
         return 0
     fi
 
-    local quarantine_suffix=".broken.${SLURM_JOB_ID:-manual}"
+    local stamp="${SLURM_JOB_ID:-manual}"
     local total_broken=0
 
     while IFS= read -r -d '' ckpt_root; do
+        local quarantine_dir
+        quarantine_dir="$(dirname "${ckpt_root}")/checkpoints_broken"
+
         while :; do
             local newest_ckpt
             newest_ckpt="$(ls -1dt "${ckpt_root}"/ckpt_* 2>/dev/null \
@@ -58,8 +68,12 @@ validate_checkpoints() {
             fi
 
             if [[ "${broken}" -eq 1 ]]; then
-                local dst="${newest_ckpt}${quarantine_suffix}"
-                echo "[ckpt-guard] Quarantining ${newest_ckpt} -> $(basename "${dst}") (${reason})"
+                mkdir -p "${quarantine_dir}"
+                local dst="${quarantine_dir}/$(basename "${newest_ckpt}").broken.${stamp}"
+                # Collision-safe (different jobids never collide; same job won't
+                # quarantine the same path twice).
+                echo "[ckpt-guard] Quarantining ${newest_ckpt}"
+                echo "[ckpt-guard]            -> ${dst} (${reason})"
                 mv "${newest_ckpt}" "${dst}"
                 total_broken=$((total_broken + 1))
                 continue
