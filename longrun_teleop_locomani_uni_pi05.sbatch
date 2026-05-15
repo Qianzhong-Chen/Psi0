@@ -121,7 +121,13 @@ srun \
         # decay_steps must match num_train_steps or cosine LR ends at ~50% of
         # peak instead of reaching decay_lr (1e-8). num_workers=16 unblocks
         # the GPU from the on-the-fly mp4 decode in the dataloader.
-        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8"
+        #
+        # SAVE_INTERVAL=2500 + --resume mirror the psi0 longrun: each ~4h
+        # segment saves ~3 ckpts (step ~2s), and on requeue the trainer loads
+        # the latest from .runs/openpi-05/<exp_name>/checkpoints/ instead of
+        # re-starting from the pi05_droid base every segment.
+        export SAVE_INTERVAL=2500
+        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume"
         EXTRA="${PI05_EXTRA_ARGS:-}"
 
         bash baselines/pi05/train_pi05.sh teleop_locomani_uni_pi05 ${PI05_OVERRIDES} ${EXTRA}

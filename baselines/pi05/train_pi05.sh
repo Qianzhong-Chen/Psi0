@@ -26,9 +26,14 @@ task="$1"
 shift
 EXTRA_ARGS="$@"
 
+# Caller can override SAVE_INTERVAL via env. Default 10000 preserves prior
+# behavior for callers that don't set it; longrun sbatches lower this to 2500
+# so each ~4h slurm segment lands at least one ckpt for --resume to pick up.
+SAVE_INTERVAL="${SAVE_INTERVAL:-10000}"
+
 torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC_PER_NODE src/openpi/train_pytorch.py \
         $task \
         --exp_name=$task \
-        --save_interval=10000 \
+        --save_interval=$SAVE_INTERVAL \
         --checkpoint_base_dir=.runs/openpi-05 \
         ${EXTRA_ARGS}
