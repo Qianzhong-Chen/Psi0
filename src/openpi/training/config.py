@@ -465,10 +465,15 @@ class LeRobotUniversalDataConfig(DataConfigFactory):
 
     Reuses HfmInputs/HfmOutputs — only the source column names differ from
     LeRobotHFMDataConfig:
-        observation.images.ego_view  -> observation/image
-        observation.state_psi0  (15) -> states
-        action.psi0_18          (18) -> actions
-        task                         -> prompt
+        observation.images.ego_view     -> observation/image
+        observation.state_psi0_18  (18) -> states
+        action.psi0_18             (18) -> actions
+        task                            -> prompt
+
+    18-D state matches the psi0 longrun sbatches (which already override
+    state-key to observation.state_psi0_18), so pi05 and psi0 train on the
+    same observation space. Extra 3 dims over the 15-D variant are
+    [vx, vy, vyaw] — base velocities the head needs for locomotion.
     """
 
     @override
@@ -477,7 +482,7 @@ class LeRobotUniversalDataConfig(DataConfigFactory):
             inputs=[
                 _transforms.RepackTransform({
                     "observation/image": "observation.images.ego_view",
-                    "states": "observation.state_psi0",
+                    "states": "observation.state_psi0_18",
                     "actions": "action.psi0_18",
                     "prompt": "task",
                 })
