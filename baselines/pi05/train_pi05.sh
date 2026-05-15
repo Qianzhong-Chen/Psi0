@@ -1,8 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
 export OMP_NUM_THREADS=32
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}
 
+if [ ! -f .venv-openpi/bin/activate ]; then
+    echo "ERROR: .venv-openpi not found at $(pwd)/.venv-openpi" >&2
+    echo "       Build it first per baselines/pi05/README.md:" >&2
+    echo "       uv venv .venv-openpi --python 3.10 && ..." >&2
+    exit 2
+fi
 source .venv-openpi/bin/activate
 
 NPROC_PER_NODE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
