@@ -460,6 +460,44 @@ class LeRobotHFMDataConfig(DataConfigFactory):
         )
 
 @dataclasses.dataclass(frozen=True)
+class LeRobotUniversalDataConfig(DataConfigFactory):
+    """HFM data config for the universal LeRobot schema (sim wigs + GR00T-WBC teleop).
+
+    Reuses HfmInputs/HfmOutputs — only the source column names differ from
+    LeRobotHFMDataConfig:
+        observation.images.ego_view  -> observation/image
+        observation.state_psi0  (15) -> states
+        action.psi0_18          (18) -> actions
+        task                         -> prompt
+    """
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        repack_transform = _transforms.Group(
+            inputs=[
+                _transforms.RepackTransform({
+                    "observation/image": "observation.images.ego_view",
+                    "states": "observation.state_psi0",
+                    "actions": "action.psi0_18",
+                    "prompt": "task",
+                })
+            ]
+        )
+        data_transforms = _transforms.Group(
+            inputs=[psi_policy.HfmInputs(model_type=model_config.model_type)],
+            outputs=[psi_policy.HfmOutputs()],
+        )
+        model_transforms = ModelTransformFactory()(model_config)
+
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=repack_transform,
+            data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=("action.psi0_18",),
+        )
+
+@dataclasses.dataclass(frozen=True)
 class LeRobotDROIDDataConfig(DataConfigFactory):
     """
     Example data config for custom DROID dataset in LeRobot format.
@@ -1200,6 +1238,120 @@ _CONFIGS = [
         ),
         pytorch_weight_path=f"{os.environ['PSI_HOME']}/cache/checkpoints/openpi/pi05_droid",
         policy_metadata={"dataset": "Spray_the_bowl_and_wipe_it_and_stack_it_up"},
+    ),
+    ### Hojune: g1_sonic 18-EEF (15-state, 18-action) tasks fine-tuned from pi05_droid ###
+    TrainConfig(
+        name="g1_sonic_orange_to_plate_turn_pi05",
+        project_name="psi",
+        num_workers=8,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=18,
+            action_horizon=16,
+            max_token_len=250,
+        ),
+        data=LeRobotHFMDataConfig(
+            repo_id=f"{os.environ['DATA_HOME']}/g1_sonic_orange_to_plate_turn_psi0",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
+        num_train_steps=40_000,
+        batch_size=128,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=1e-4,
+            decay_steps=40_000,
+            decay_lr=1e-8,
+        ),
+        pytorch_weight_path=f"{os.environ['PSI_HOME']}/cache/checkpoints/openpi/pi05_droid",
+        policy_metadata={"dataset": "g1_sonic_orange_to_plate_turn_psi0"},
+        checkpoint_base_dir=".runs/openpi-05",
+    ),
+    ### Hojune: pi05 fine-tunes on universal-schema datasets (suffix _uni = verified
+    ### compatible with psi0, pi05, GR00T N1.7).
+    ### repo_id uses HF_LEROBOT_HOME/hojjunekim/<name> to match psi/'s DATA_ROOT
+    ### convention, so a single `hf download ... --local-dir $HF_LEROBOT_HOME/hojjunekim/<name>`
+    ### serves BOTH pi05 (this TrainConfig) and psi0 (longrun_*.sbatch bash arg).
+    TrainConfig(
+        name="g1_sonic_orange_to_plate_locomani_uni_pi05",
+        project_name="psi",
+        num_workers=8,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=18,
+            action_horizon=16,
+            max_token_len=250,
+        ),
+        data=LeRobotUniversalDataConfig(
+            repo_id=f"{os.environ['HF_LEROBOT_HOME']}/hojjunekim/g1_sonic_orange_to_plate_locomani_uni",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
+        num_train_steps=40_000,
+        batch_size=128,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=1e-4,
+            decay_steps=40_000,
+            decay_lr=1e-8,
+        ),
+        pytorch_weight_path=f"{os.environ['PSI_HOME']}/cache/checkpoints/openpi/pi05_droid",
+        policy_metadata={"dataset": "g1_sonic_orange_to_plate_locomani_uni"},
+        checkpoint_base_dir=".runs/openpi-05",
+    ),
+    TrainConfig(
+        name="g1_sonic_orange_to_plate_turn_uni_pi05",
+        project_name="psi",
+        num_workers=8,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=18,
+            action_horizon=16,
+            max_token_len=250,
+        ),
+        data=LeRobotUniversalDataConfig(
+            repo_id=f"{os.environ['HF_LEROBOT_HOME']}/hojjunekim/g1_sonic_orange_to_plate_turn_uni",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
+        num_train_steps=40_000,
+        batch_size=128,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=1e-4,
+            decay_steps=40_000,
+            decay_lr=1e-8,
+        ),
+        pytorch_weight_path=f"{os.environ['PSI_HOME']}/cache/checkpoints/openpi/pi05_droid",
+        policy_metadata={"dataset": "g1_sonic_orange_to_plate_turn_uni"},
+        checkpoint_base_dir=".runs/openpi-05",
+    ),
+    TrainConfig(
+        name="teleop_locomani_uni_pi05",
+        project_name="psi",
+        num_workers=8,
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=18,
+            action_horizon=16,
+            max_token_len=250,
+        ),
+        data=LeRobotUniversalDataConfig(
+            repo_id=f"{os.environ['HF_LEROBOT_HOME']}/hojjunekim/teleop_locomani_uni",
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_droid/params"),
+        num_train_steps=40_000,
+        batch_size=128,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=1e-4,
+            decay_steps=40_000,
+            decay_lr=1e-8,
+        ),
+        pytorch_weight_path=f"{os.environ['PSI_HOME']}/cache/checkpoints/openpi/pi05_droid",
+        policy_metadata={"dataset": "teleop_locomani_uni"},
+        checkpoint_base_dir=".runs/openpi-05",
     ),
     ### experiments on SIMPLE tasks ####
     TrainConfig(

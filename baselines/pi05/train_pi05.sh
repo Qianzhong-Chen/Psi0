@@ -10,13 +10,18 @@ ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
 if [ "$#" -lt 1 ]; then
-    echo "Usage: $0 <task> "
+    echo "Usage: $0 <task> [extra args...]"
     echo "Example: $0 G1WholebodyXMoveBendPickTeleop-v0"
     exit 1
 fi
+
+task="$1"
+shift
+EXTRA_ARGS="$@"
 
 torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC_PER_NODE src/openpi/train_pytorch.py \
         $task \
         --exp_name=$task \
         --save_interval=10000 \
-        --checkpoint_base_dir=.runs/openpi-05
+        --checkpoint_base_dir=.runs/openpi-05 \
+        ${EXTRA_ARGS}
