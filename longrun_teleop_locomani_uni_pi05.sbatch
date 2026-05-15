@@ -104,8 +104,12 @@ srun \
         set +u
         conda activate psi0
         cd /lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais/Programs/hojune/Psi0-hojune
-        # pi05 uses a different venv than psi/. baselines/pi05/train_pi05.sh
-        # activates .venv-openpi internally, so we don\'t source it here.
+        # pi05 uses a different venv than psi. baselines/pi05/train_pi05.sh
+        # activates .venv-openpi internally, so we do not source it here.
+        # NOTE: this whole block is single-quoted in bash -lc; never put a
+        # literal apostrophe in here or it will close the quote and leak the
+        # following lines (e.g. export CUDA_HOME="${CONDA_PREFIX}") into the
+        # outer shell, where set -u trips on the unset CONDA_PREFIX.
         set -u
         export WANDB_API_KEY=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
         export CUDA_HOME="${CONDA_PREFIX}"
