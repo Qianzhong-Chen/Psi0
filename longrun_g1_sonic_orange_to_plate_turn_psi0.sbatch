@@ -139,16 +139,25 @@ srun \
         # User-supplied PSI0_FINETUNE_EXTRA_ARGS_* comes after and wins via tyro last-value rule.
         DEFAULT_GA="--train.gradient_accumulation_steps=2"
 
+        # Universal-naming overrides. Parquet uses GR00T-native columns
+        # (observation.state_psi0 / action.psi0_18) and the video dir is
+        # observation.images.ego_view/. The .sh defaults still assume the old
+        # Psi0 reformat layout (states/action/egocentric), so flip all four
+        # column keys here; psi/ does NOT read modality.json. odim stays 15.
+        UNIFIED_OVERRIDES="--data.transform.repack.image-keys observation.images.ego_view --data.transform.repack.state-key=observation.state_psi0 --data.transform.repack.action-key=action.psi0_18 --data.transform.field.stat-state-key=observation.state_psi0 --data.transform.field.stat-action-key=action.psi0_18"
+
         case "${TRACK}" in
             eef)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_EEF:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
-                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_EEF}" ${DEFAULT_GA} ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_EEF}" \
+                    ${DEFAULT_GA} ${UNIFIED_OVERRIDES} ${EXTRA}
                 ;;
             full)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_FULL:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-18act-eef-full.sh \
-                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_FULL}" ${DEFAULT_GA} ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_FULL}" \
+                    ${DEFAULT_GA} ${UNIFIED_OVERRIDES} ${EXTRA}
                 ;;
             *)
                 echo "Unknown TRACK=${TRACK}. Use: eef | full" >&2

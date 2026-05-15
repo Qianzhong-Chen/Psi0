@@ -15,18 +15,24 @@
 set -euo pipefail
 
 # 18-STATE variant of longrun_g1_sonic_orange_to_plate_turn_psi0.sbatch.
-# Same dataset (hojjunekim/g1_sonic_orange_to_plate_turn_psi0), but trains on the
-# 18-dim state column (states_18) instead of the 15-dim default (states). The
-# dataset has both columns side-by-side; psi/ does NOT read modality.json, so
-# both the dataloader column AND the stats key have to be flipped via tyro.
+# Same dataset (hojjunekim/g1_sonic_orange_to_plate_turn_psi0). Built with the
+# universal-naming format (GR00T-native columns left intact), so the dataset
+# also trains GR00T fine-tune without any reformat. The 18-D state column
+# (observation.state_psi0_18) lives side-by-side with the 15-D default
+# (observation.state_psi0). psi/ does NOT read modality.json, so every column
+# key has to be flipped via tyro.
 #
 # Overrides injected after the .sh script:
-#   --data.transform.repack.state-key=states_18       # read 18-D column from parquet
-#   --data.transform.field.stat-state-key=states_18   # use 18-D stats
-#   --model.odim=18                                   # state-encoder out dim
+#   --data.transform.repack.image-keys observation.images.ego_view   # video dir
+#   --data.transform.repack.state-key=observation.state_psi0_18      # 18-D parquet col
+#   --data.transform.repack.action-key=action.psi0_18                # action parquet col
+#   --data.transform.field.stat-state-key=observation.state_psi0_18  # 18-D stats
+#   --data.transform.field.stat-action-key=action.psi0_18            # action stats
+#   --model.odim=18                                                  # state-encoder dim
 #
-# Missing the repack flag leaves RealRepackTransform.state_key="states" (15-D),
-# producing a (1,15) vs (18,) broadcast error in normalize_state_func.
+# Missing any column override leaves RealRepackTransform on its old-format
+# defaults (states/action/egocentric), producing KeyError or a (1,15) vs (18,)
+# broadcast error in normalize_state_func.
 #
 # sbatch --job-name=eef_18  longrun_g1_sonic_orange_to_plate_turn_psi0_18state.sbatch eef
 # sbatch --job-name=full_18 longrun_g1_sonic_orange_to_plate_turn_psi0_18state.sbatch full
@@ -146,24 +152,26 @@ srun \
         # 4xH100 grad-accum default to preserve effective batch 512.
         DEFAULT_GA="--train.gradient_accumulation_steps=2"
 
-        # 18-state overrides: flip the dataloader column, the stats key, and the
-        # state-encoder input dim — all three must be set together. Dataset is
-        # the same (both columns live side-by-side). Tyro last-value rule means
-        # user EXTRA still wins if they pass a conflicting flag.
-        STATE_18_OVERRIDES="--data.transform.repack.state-key=states_18 --data.transform.field.stat-state-key=states_18 --model.odim=18"
+        # Universal-naming + 18-state overrides: parquet uses GR00T-native column
+        # names, video dir is observation.images.ego_view/, and we read the 18-D
+        # state column (observation.state_psi0_18). psi/ does NOT read
+        # modality.json so every column key must be flipped. odim=18 sets the
+        # state-encoder input dim. Tyro last-value rule means user EXTRA still
+        # wins if they pass a conflicting flag.
+        UNIFIED_OVERRIDES="--data.transform.repack.image-keys observation.images.ego_view --data.transform.repack.state-key=observation.state_psi0_18 --data.transform.repack.action-key=action.psi0_18 --data.transform.field.stat-state-key=observation.state_psi0_18 --data.transform.field.stat-action-key=action.psi0_18 --model.odim=18"
 
         case "${TRACK}" in
             eef)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_EEF:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
                     hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_EEF}" \
-                    ${DEFAULT_GA} ${STATE_18_OVERRIDES} ${EXTRA}
+                    ${DEFAULT_GA} ${UNIFIED_OVERRIDES} ${EXTRA}
                 ;;
             full)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_FULL:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-18act-eef-full.sh \
                     hojjunekim/g1_sonic_orange_to_plate_turn_psi0 "${G1_TURN_EXP_FULL}" \
-                    ${DEFAULT_GA} ${STATE_18_OVERRIDES} ${EXTRA}
+                    ${DEFAULT_GA} ${UNIFIED_OVERRIDES} ${EXTRA}
                 ;;
             *)
                 echo "Unknown TRACK=${TRACK}. Use: eef | full" >&2
