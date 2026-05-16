@@ -12,6 +12,18 @@ if [ ! -f .venv-openpi/bin/activate ]; then
 fi
 source .venv-openpi/bin/activate
 
+# Fail fast if the OpenPI transformers patch is missing.
+# Otherwise PI0Pytorch.__init__ raises ValueError per-rank under torchrun,
+# which is much harder to read than this single-line message.
+if ! python -c "from transformers.models.siglip import check; \
+    import sys; sys.exit(0 if check.check_whether_transformers_replace_is_installed_correctly() else 1)" 2>/dev/null; then
+    echo "ERROR: transformers_replace patch is not applied in .venv-openpi." >&2
+    echo "       Run (from $(pwd)):" >&2
+    echo "         cp -r src/openpi/models_pytorch/transformers_replace/* \\" >&2
+    echo "               .venv-openpi/lib/python3.10/site-packages/transformers/" >&2
+    exit 3
+fi
+
 NPROC_PER_NODE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
