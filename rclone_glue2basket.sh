@@ -23,8 +23,8 @@ cd /home/jiankais/lustre_jiankais/Programs/hojune/Psi0-hojune/.runs/ || exit 1
 # out=stanford:Hojune/ckpts/teleop-locomani-uni-18state-eef-head-20000
 # d=finetune/wigs-locomani-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605151940
 # out=stanford:Hojune/ckpts/finetune-wigs-locomani-18state-eef-head-20000
-d=openpi-05/wigs_locomani_pi05
-out=stanford:Hojune/ckpts/openpi-05-wigs_locomani_pi05-20000
+d=finetune/teleop-turn-uni-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605161455
+out=stanford:Hojune/ckpts/finetune-teleop-turn-uni-18state-eef-head
 
 # Throttle to avoid Drive API 403 rateLimitExceeded.
 # rclone's default shared client_id is rate-limited globally; keep tpslimit low.
