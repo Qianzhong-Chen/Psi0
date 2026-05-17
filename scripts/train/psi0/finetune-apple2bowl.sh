@@ -1,16 +1,10 @@
 #!/bin/bash
 
-# Fine-tune Psi0 (full VLM tune) for glue-to-basket teleop task.
-# H100-tuned hyperparameters: batch_size=64, grad_accum=1.
+# Fine-tune Psi0 for apple-to-bowl pick-place task.
+# Action-head only (--model.no-tune-vlm), 18-dim EEF actions.
 #
-# Action (18): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + vx + vy + vyaw + height
-# State  (15): L_eef_6d(6) + L_grip(1) + R_eef_6d(6) + R_grip(1) + height
-# Source: GR00T-WBC teleop recording, 30 fps, 480x640 RGB, manipulation-only
-#         (vx=vy=vyaw=0, height=constant).
-#
-# Usage: ./finetune-glue2basket.sh [task] [exp]
-# Dataset: hojjunekim/g1_sonic_orange_to_plate_turn_psi0 (HF Hub)
-#   Place at: $HF_LEROBOT_HOME/hojjunekim/g1_sonic_orange_to_plate_turn_psi0/
+# Usage: ./finetune-apple2bowl.sh
+# Expects dataset at: ~/.cache/huggingface/lerobot/hojjunekim/humanoid_apple2bowl_18act_eef_psi
 
 export OMP_NUM_THREADS=32
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
@@ -21,8 +15,8 @@ NPROC_PER_NODE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
 ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
-export task="${1:-hojjunekim/g1_sonic_orange_to_plate_turn_psi0}"
-export exp="${2:-glue2basket-teleop}"
+export task="${1:-hojjunekim/humanoid_apple2bowl_18act_eef_psi}"
+export exp="${2:-apple2bowl}"
 shift 2 2>/dev/null || true
 EXTRA_ARGS="$@"
 
@@ -44,7 +38,7 @@ finetune_real_psi0_config \
 --train.num_workers=0 \
 --train.max_checkpoints_to_keep=2 \
 --train.gradient_accumulation_steps=1 \
---train.learning_rate=5e-5 \
+--train.learning_rate=1e-4 \
 --train.max_training_steps=40000 \
 --train.warmup_ratio=None \
 --train.warmup_steps=1000 \
@@ -79,15 +73,12 @@ finetune_real_psi0_config \
 --model.observation-horizon=1 \
 --model.odim=15 \
 --model.view_feature_dim=2048 \
---model.tune-vlm \
+--model.no-tune-vlm \
 --model.no-use_film \
 --model.no-combined_temb \
 --model.rtc \
 --model.max-delay=8
 "
 
-# shellcheck disable=SC1091
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/_ensure_master_port.sh"
-
-torchrun --nproc_per_node=$NPROC_PER_NODE --master_port="${MASTER_PORT}" scripts/train.py \
+torchrun --nproc_per_node=$NPROC_PER_NODE --master_port=${MASTER_PORT:-29500} scripts/train.py \
     ${args} ${EXTRA_ARGS}

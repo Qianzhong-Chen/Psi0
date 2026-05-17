@@ -18,9 +18,9 @@ set -euo pipefail
 # sbatch --job-name=psi0_joint longrun.sbatch joint
 # sbatch --job-name=psi0_36act longrun.sbatch 36act
 # Arg1 TRACK — which finetune:
-#   eef    -> psi0-18act-eef-full        + humanoid_18act_15state_eef_psi
-#   joint  -> psi0-18act-joint-full      + humanoid_18act_15state_joint_psi
-#   36act  -> psi0-36act-joint-aligned-full + humanoid_36act_aligned_joint_psi
+#   eef    -> psi0-18act-eef-full        + g1_sonic_orange_to_plate_turn_psi0
+#   joint  -> psi0-18act-joint-full      + g1_sonic_orange_to_plate_turn_psi0
+#   36act  -> psi0-36act-joint-aligned-full + g1_sonic_orange_to_plate_turn_psi0
 #
 # Arg2 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue; no state files.
 #
@@ -125,17 +125,17 @@ srun \
             eef)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_EEF:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-18act-eef-full.sh \
-                    hojjunekim/humanoid_18act_15state_eef_psi psi0-18act-eef-full ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 psi0-18act-eef-full ${EXTRA}
                 ;;
             joint)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_JOINT:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-18act-joint-full.sh \
-                    hojjunekim/humanoid_18act_15state_joint_psi psi0-18act-joint-full ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 psi0-18act-joint-full ${EXTRA}
                 ;;
             36act)
                 EXTRA="${PSI0_FINETUNE_EXTRA_ARGS_36ACT:-${PSI0_FINETUNE_EXTRA_ARGS:-}}"
                 bash scripts/train/psi0/h100/finetune-real-psi0-36act-joint-aligned-full.sh \
-                    hojjunekim/humanoid_36act_aligned_joint_psi psi0-36act-joint-aligned-full ${EXTRA}
+                    hojjunekim/g1_sonic_orange_to_plate_turn_psi0 psi0-36act-joint-aligned-full ${EXTRA}
                 ;;
             *)
                 echo "Unknown TRACK=${TRACK}. Use: eef | joint | 36act" >&2

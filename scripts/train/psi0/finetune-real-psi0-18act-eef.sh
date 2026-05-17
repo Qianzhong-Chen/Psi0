@@ -19,7 +19,7 @@ ulimit -n 65535
 echo "Training with $NPROC_PER_NODE GPUs"
 
 # Default dataset and experiment name
-DEFAULT_REPO="hojjunekim/humanoid_18act_15state_eef_psi"
+DEFAULT_REPO="hojjunekim/g1_sonic_orange_to_plate_turn_psi0"
 export task="${1:-$DEFAULT_REPO}"
 export exp="${2:-psi0-18act-eef}"
 shift 2 2>/dev/null || true

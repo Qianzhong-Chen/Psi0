@@ -236,8 +236,8 @@ def plot_results(results, ep_idx, save_dir):
             label = ACTION_LABELS[d] if d < len(ACTION_LABELS) else f"dim{d}"
             ax.plot(np.arange(ep_len), gt_full[:, d], "-", color=dim_colors[d],
                     label=f"GT {label}", alpha=0.9, linewidth=1.5)
-            ax.plot(sample_frames, pred_first_steps[:, d], "x", color=dim_colors[d],
-                    label=f"Pred {label}", alpha=0.7, markersize=4)
+            ax.plot(sample_frames, pred_first_steps[:, d], "--", color=dim_colors[d],
+                    label=f"Pred {label}", alpha=0.7, linewidth=1.0)
         ax.set_title(title)
         ax.set_ylabel(f"Value ({unit})" if unit else "Value")
         ax.legend(fontsize=8, ncol=2)
