@@ -496,6 +496,18 @@ def train_loop(config: _config.TrainConfig):
             # to_pad = torch.zeros_like(w[-pad_dim:, :])
             state_dict["action_out_proj.weight"] = torch.cat([w, to_pad], dim=0)
 
+        elif pad_dim < 0:
+            # eg., torch.Size([1024, 32]) -> torch.Size([1024, 18])
+            # Symmetric to the pad_dim > 0 branch: slice pretrained action heads
+            # down to config.model.action_dim. Without this, the shape-mismatch
+            # sweep below would delete these tensors and load_state_dict would
+            # leave the action heads random-init, which biases short fine-tunes.
+            keep = config.model.action_dim
+            state_dict["action_in_proj.weight"]  = state_dict["action_in_proj.weight"][:, :keep]
+            state_dict["action_out_proj.weight"] = state_dict["action_out_proj.weight"][:keep, :]
+            state_dict["action_out_proj.bias"]   = state_dict["action_out_proj.bias"][:keep]
+            # action_in_proj.bias has shape [width], independent of action_dim — loads as-is.
+
         # https://github.com/Physical-Intelligence/openpi/issues/669
         state_dict["paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight"] = \
             state_dict["paligemma_with_expert.paligemma.lm_head.weight"]
