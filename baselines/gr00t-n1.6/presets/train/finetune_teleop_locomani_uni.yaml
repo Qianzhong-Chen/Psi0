@@ -1,0 +1,13 @@
+extends: _common_finetune.yaml
+model:
+  base_model_path: ./checkpoints/base/GR00T-N1.6-3B
+dataset:
+  embodiment_tag: G1_LOCO_DOWNSTREAM
+  modality_config_path: src/gr00t/gr00t/configs/modality/g1_locomanip.py
+training:
+  num_gpus: 4
+  max_steps: 20000
+  output_dir: ./checkpoints/gr00t_n16_teleop_locomani_uni
+extra_args:
+  reinit_action_head: true
+  use_wandb: true
