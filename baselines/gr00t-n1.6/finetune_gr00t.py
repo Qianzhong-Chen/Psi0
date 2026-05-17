@@ -5,7 +5,6 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
-import sys
 from typing import Any
 
 import yaml
@@ -14,13 +13,18 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PRESET_ROOT = SCRIPT_DIR / "presets" / "train"
-# Default: use the interpreter that invoked this launcher (works whether the
-# caller activated a unified psi0 env or a dedicated src/gr00t/.venv). Override
-# with GR00T_PYTHON env var to point at a specific interpreter.
+# GR00T-N1.6 needs the baseline-pinned torch/transformers from src/gr00t/.venv
+# (see baselines/README.md — each baseline has its own isolated env). Allow an
+# explicit override via GR00T_PYTHON env var; otherwise require the default.
 _DEFAULT_GR00T_PYTHON = REPO_ROOT / "src/gr00t/.venv/bin/python"
-GR00T_PYTHON = Path(os.environ.get("GR00T_PYTHON") or (
-    _DEFAULT_GR00T_PYTHON if _DEFAULT_GR00T_PYTHON.exists() else sys.executable
-))
+GR00T_PYTHON = Path(os.environ.get("GR00T_PYTHON") or _DEFAULT_GR00T_PYTHON)
+if not GR00T_PYTHON.exists():
+    raise SystemExit(
+        f"[finetune_gr00t] Python interpreter not found: {GR00T_PYTHON}\n"
+        f"GR00T-N1.6 requires its own venv with baseline-pinned torch/transformers.\n"
+        f"Create it with:  cd {REPO_ROOT}/src/gr00t && uv sync\n"
+        f"(or override with GR00T_PYTHON=/path/to/python)"
+    )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
