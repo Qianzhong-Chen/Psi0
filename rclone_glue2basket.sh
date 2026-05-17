@@ -23,8 +23,12 @@ cd /home/jiankais/lustre_jiankais/Programs/hojune/Psi0-hojune/.runs/ || exit 1
 # out=stanford:Hojune/ckpts/teleop-locomani-uni-18state-eef-head-20000
 # d=finetune/wigs-locomani-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605151940
 # out=stanford:Hojune/ckpts/finetune-wigs-locomani-18state-eef-head-20000
-d=finetune/teleop-turn-uni-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605161455
-out=stanford:Hojune/ckpts/finetune-teleop-turn-uni-18state-eef-head
+# d=finetune/teleop-turn-uni-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605161455
+# out=stanford:Hojune/ckpts/finetune-teleop-turn-uni-18state-eef-head
+d=finetune/wigs-locomani-adjust-18state-eef-head.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605170125
+out=stanford:Hojune/ckpts/finetune-wigs-locomani-adjust-18state-eef-head
+# d=finetune/teleop-locomani-uni-18state-eef-head-v2.real.flow1000.cosine.lr1.0e-04.b256.gpus4.2605162343
+# out=stanford:Hojune/ckpts/finetune-teleop-locomani-uni-18state-eef-head-v2
 
 # Throttle to avoid Drive API 403 rateLimitExceeded.
 # rclone's default shared client_id is rate-limited globally; keep tpslimit low.
@@ -42,12 +46,38 @@ RCLONE_FLAGS=(
   --low-level-retries 30
 )
 
+# Outer retry loop: --retries only covers transfers, not failures during
+# filesystem init (e.g. "couldn't find root directory ID" when Drive returns
+# 403 rateLimitExceeded on the very first call). Keep re-invoking rclone
+# until it exits successfully.
+RETRY_SLEEP="${RETRY_SLEEP:-60}"
+RETRY_MAX="${RETRY_MAX:-0}"  # 0 = infinite
+
+rclone_retry() {
+  local attempt=1
+  while true; do
+    echo "[rclone_retry] attempt #$attempt: rclone $*"
+    if rclone "$@"; then
+      echo "[rclone_retry] success on attempt #$attempt"
+      return 0
+    fi
+    local rc=$?
+    if [ "$RETRY_MAX" -gt 0 ] && [ "$attempt" -ge "$RETRY_MAX" ]; then
+      echo "[rclone_retry] giving up after $attempt attempts (last exit=$rc)"
+      return "$rc"
+    fi
+    echo "[rclone_retry] attempt #$attempt failed (exit=$rc); sleeping ${RETRY_SLEEP}s..."
+    sleep "$RETRY_SLEEP"
+    attempt=$((attempt + 1))
+  done
+}
+
 echo "Uploading $d -> $out"
 
-rclone copy "$d/checkpoints/ckpt_20000" "$out" "${RCLONE_FLAGS[@]}"
+rclone_retry copy "$d/checkpoints/ckpt_20000" "$out" "${RCLONE_FLAGS[@]}"
 sleep 5
-rclone copy "$d/argv.txt"         "$out" "${RCLONE_FLAGS[@]}"
+rclone_retry copy "$d/argv.txt"         "$out" "${RCLONE_FLAGS[@]}"
 sleep 5
-rclone copy "$d/envs.txt"         "$out" "${RCLONE_FLAGS[@]}"
+rclone_retry copy "$d/envs.txt"         "$out" "${RCLONE_FLAGS[@]}"
 sleep 5
-rclone copy "$d/run_config.json"  "$out" "${RCLONE_FLAGS[@]}"
+rclone_retry copy "$d/run_config.json"  "$out" "${RCLONE_FLAGS[@]}"

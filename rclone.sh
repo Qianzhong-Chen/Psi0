@@ -1,5 +1,31 @@
 cd /home/jiankais/lustre_jiankais/Programs/hojune/Psi0-hojune/.runs/finetune/ || exit 1
 
+# Outer retry loop: rclone's --retries only covers transfers, not failures
+# during filesystem init (e.g. "couldn't find root directory ID" when Drive
+# returns 403 rateLimitExceeded on the very first call). Keep re-invoking
+# rclone until it exits successfully.
+RETRY_SLEEP="${RETRY_SLEEP:-60}"
+RETRY_MAX="${RETRY_MAX:-0}"  # 0 = infinite
+
+rclone_retry() {
+  local attempt=1
+  while true; do
+    echo "[rclone_retry] attempt #$attempt: rclone $*"
+    if rclone "$@"; then
+      echo "[rclone_retry] success on attempt #$attempt"
+      return 0
+    fi
+    local rc=$?
+    if [ "$RETRY_MAX" -gt 0 ] && [ "$attempt" -ge "$RETRY_MAX" ]; then
+      echo "[rclone_retry] giving up after $attempt attempts (last exit=$rc)"
+      return "$rc"
+    fi
+    echo "[rclone_retry] attempt #$attempt failed (exit=$rc); sleeping ${RETRY_SLEEP}s..."
+    sleep "$RETRY_SLEEP"
+    attempt=$((attempt + 1))
+  done
+}
+
 for d in \
   psi0-18act-eef-full.real.flow1000.cosine.lr5.0e-05.b512.gpus8.2604192206 \
   psi0-18act-joint-full.real.flow1000.cosine.lr5.0e-05.b512.gpus8.2604192219 \
@@ -23,16 +49,16 @@ do
 
   echo "Uploading $d -> $out"
 
-  rclone copy "$d/checkpoints/ckpt_40000" "$out" \
+  rclone_retry copy "$d/checkpoints/ckpt_40000" "$out" \
     -P # --drive-chunk-size 64M --multi-thread-streams 4 --bwlimit 3M --transfers 4 --checkers 8 --tpslimit 1 --tpslimit-burst 1
 
-  rclone copy "$d/argv.txt" "$out" \
+  rclone_retry copy "$d/argv.txt" "$out" \
     -P #--tpslimit 1 --tpslimit-burst 1
 
-  rclone copy "$d/envs.txt" "$out" \
+  rclone_retry copy "$d/envs.txt" "$out" \
     -P #--tpslimit 1 --tpslimit-burst 1
 
-  rclone copy "$d/run_config.json" "$out" \
+  rclone_retry copy "$d/run_config.json" "$out" \
     -P #--tpslimit 1 --tpslimit-burst 1
 
   sleep 20
