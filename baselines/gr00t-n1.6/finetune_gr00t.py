@@ -5,6 +5,7 @@ import argparse
 import os
 from pathlib import Path
 import subprocess
+import sys
 from typing import Any
 
 import yaml
@@ -13,7 +14,13 @@ import yaml
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent.parent
 PRESET_ROOT = SCRIPT_DIR / "presets" / "train"
-GR00T_PYTHON = REPO_ROOT / "src/gr00t/.venv/bin/python"
+# Default: use the interpreter that invoked this launcher (works whether the
+# caller activated a unified psi0 env or a dedicated src/gr00t/.venv). Override
+# with GR00T_PYTHON env var to point at a specific interpreter.
+_DEFAULT_GR00T_PYTHON = REPO_ROOT / "src/gr00t/.venv/bin/python"
+GR00T_PYTHON = Path(os.environ.get("GR00T_PYTHON") or (
+    _DEFAULT_GR00T_PYTHON if _DEFAULT_GR00T_PYTHON.exists() else sys.executable
+))
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
