@@ -7,7 +7,7 @@ dataset:
 training:
   num_gpus: 4
   max_steps: 20000
-  output_dir: ./checkpoints/gr00t_n16_wigs_locomani_align_uni
+  output_dir: ./checkpoints/grootn16-wigs-locomani-align-20000
 extra_args:
   reinit_action_head: true
   use_wandb: true

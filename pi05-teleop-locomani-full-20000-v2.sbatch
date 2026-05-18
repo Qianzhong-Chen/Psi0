@@ -8,22 +8,27 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J wigs_locomani_pi05_longrun
+#SBATCH -J pi05-teleop-locomani-full-20000-v2
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# OpenPI pi05 FULL fine-tune on the wigs sim universal-naming dataset.
-# TrainConfig: wigs_locomani_pi05 (registered in src/openpi/training/config.py).
+# v2 retrain of OpenPI pi05 FULL fine-tune on the universal-naming TELEOP
+# dataset. Identical config to pi05-teleop-locomani-full-20000.sbatch except:
+#   - --exp_name override (via PI05_OVERRIDES) routes ckpts to a fresh
+#     .runs/openpi-05/pi05-teleop-locomani-full-20000-v2/ dir so --resume does NOT
+#     pick up the broken-data checkpoints from the previous run
+#   - SLURM job name has _v2_ suffix so the singleton chain stays separate
+# The dataset itself was re-uploaded 2026-05-16 with vyaw + idle-pose gripper
+# fixes. This run also benefits from the train_pytorch.py `pad_dim < 0` fix
+# (action heads previously random-init when loading pi05_droid into 18-dim).
 #
-# Dataset must be materialized at
-# $HF_LEROBOT_HOME/hojjunekim/wigs_locomani_align_uni/
-# (same path psi0 uses, so a single HF download serves both pi05 and psi0).
-# openpi reads from local disk; norm_stats.json travels inside the dataset dir.
+# Refresh the local dataset mirror before submitting:
+#   hf download hojjunekim/teleop_locomani_uni --repo-type dataset \
+#       --local-dir "$HF_LEROBOT_HOME/hojjunekim/teleop_locomani_uni"
 #
-# sbatch --job-name=wigs_locomani_pi05 \
-#     longrun_wigs_locomani_pi05.sbatch
+# sbatch pi05-teleop-locomani-full-20000-v2.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -50,7 +55,7 @@ if [[ "${SEG}" -gt "${MAX_SEG}" ]]; then
 fi
 
 echo "========== Job =========="
-echo "TRACK=full (pi05 full fine-tune)  SEG=${SEG}/${MAX_SEG}"
+echo "TRACK=full (pi05 full fine-tune) v2 retrain  SEG=${SEG}/${MAX_SEG}"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}  JOB_NAME=${SLURM_JOB_NAME:-}"
 echo "HOSTNAME=$(hostname)  PWD=${PWD}"
 echo "========================="
@@ -60,7 +65,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-wigs_locomani_pi05_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-pi05-teleop-locomani-full-20000-v2}" "$0" "$((SEG + 1))"
 fi
 
 ############################
@@ -125,11 +130,15 @@ srun \
         # segment saves ~3 ckpts (step ~2s), and on requeue the trainer loads
         # the latest from .runs/openpi-05/<exp_name>/checkpoints/ instead of
         # re-starting from the pi05_droid base every segment.
+        #
+        # --exp_name override sends ckpts to a NEW dir so --resume does not
+        # pick up the broken-data run. tyro takes the last value, so this
+        # wins over the --exp_name=$task baked into train_pi05.sh.
         export SAVE_INTERVAL=2500
-        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume"
+        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume --exp_name=pi05-teleop-locomani-full-20000-v2"
         EXTRA="${PI05_EXTRA_ARGS:-}"
 
-        bash baselines/pi05/train_pi05.sh wigs_locomani_pi05 ${PI05_OVERRIDES} ${EXTRA}
+        bash baselines/pi05/train_pi05.sh teleop_locomani_uni_pi05 ${PI05_OVERRIDES} ${EXTRA}
     ' &
 SRUN_PID=$!
 

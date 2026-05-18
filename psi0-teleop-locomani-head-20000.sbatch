@@ -8,23 +8,22 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J teleop_turn_uni_psi0_longrun
+#SBATCH -J psi0-teleop-locomani-head-20000
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# Psi0 18-state head-only fine-tune on the universal-naming TELEOP TURN dataset
-# (hojjunekim/teleop_turn_uni). Built from GR00T-WBC teleop recordings of
-# "pick the orange, turn right, and place it on the plate", then augmented
-# with observation.state_psi0_18, action.psi0_18, states_18 — same column
-# names as teleop_locomani_uni so the existing 18-state finetune script +
-# tyro overrides work unchanged.
+# Psi0 18-state head-only fine-tune on the universal-naming TELEOP dataset
+# (hojjunekim/teleop_locomani_uni). Built from GR00T-WBC teleop recordings,
+# then augmented with observation.state_psi0_18, action.psi0_18, states_18 —
+# same column names as the sim 18-state pipeline, so the existing 18-state
+# finetune script + tyro overrides work unchanged.
 #
-# Only the EEF (head-only) track. Max training steps capped to 20k.
+# Only the EEF (head-only) track is provided — per request, NO full fine-tune
+# for psi0 on this dataset. Max training steps capped to 20k.
 #
-# sbatch --job-name=teleop_turn_uni_eef \
-#     longrun_teleop_turn_uni_psi0.sbatch
+# sbatch psi0-teleop-locomani-head-20000.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -33,8 +32,8 @@ SEG="${1:-1}"
 # User config
 #
 # Optional tyro extras (appended AFTER baked-in overrides + grad-accum + 20k cap):
-#   export TELEOP_TURN_UNI_EXP='...'           # --exp (default teleop-turn-uni-18state-eef-head)
-#   export PSI0_FINETUNE_EXTRA_ARGS='...'      # extra tyro args (wins via last-value rule)
+#   export TELEOP_LOCOMANI_UNI_EXP='...'   # --exp (default psi0-teleop-locomani-head-20000)
+#   export PSI0_FINETUNE_EXTRA_ARGS='...'          # extra tyro args (wins via last-value rule)
 ############################
 NGPU=4
 MAX_SEG="${MAX_SEG:-25}"
@@ -62,7 +61,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-teleop_turn_uni_psi0_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-psi0-teleop-locomani-head-20000}" "$0" "$((SEG + 1))"
 fi
 
 ############################
@@ -113,12 +112,15 @@ srun \
         export CPATH="${CONDA_PREFIX}/targets/x86_64-linux/include:${CONDA_PREFIX}/include:${CPATH:-}"
         export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
-        EXP="${TELEOP_TURN_UNI_EXP:-teleop-turn-uni-18state-eef-head}"
+        EXP="${TELEOP_LOCOMANI_UNI_EXP:-psi0-teleop-locomani-head-20000}"
 
         # 4xH100 no grad-accum => effective batch = 64*1*4 = 256.
+        # (Larger physical batch is faster per opt step than grad-accum when
+        # head-only FT fits in memory; backbone activations dominate but the
+        # frozen-param Adam state is zero, so room to spare on 80GB.)
         DEFAULT_GA="--train.gradient_accumulation_steps=1"
 
-        # 20k training steps (mirrors teleop_locomani_uni longrun).
+        # 20k training steps per request (default in eef.sh is 40k).
         STEPS_CAP="--train.max_training_steps=20000"
 
         # Universal-naming + 18-state overrides: parquet uses GR00T-native column
@@ -130,7 +132,7 @@ srun \
         EXTRA="${PSI0_FINETUNE_EXTRA_ARGS:-}"
 
         bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
-            hojjunekim/teleop_turn_uni "${EXP}" \
+            hojjunekim/teleop_locomani_uni "${EXP}" \
             ${DEFAULT_GA} ${STEPS_CAP} ${UNIFIED_OVERRIDES} ${EXTRA}
     ' &
 SRUN_PID=$!

@@ -8,23 +8,22 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J teleop_locomani_uni_psi0_longrun
+#SBATCH -J pi05-teleop-locomani-full-20000
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# Psi0 18-state head-only fine-tune on the universal-naming TELEOP dataset
-# (hojjunekim/teleop_locomani_uni). Built from GR00T-WBC teleop recordings,
-# then augmented with observation.state_psi0_18, action.psi0_18, states_18 —
-# same column names as the sim 18-state pipeline, so the existing 18-state
-# finetune script + tyro overrides work unchanged.
+# OpenPI pi05 FULL fine-tune on the universal-naming TELEOP dataset.
+# TrainConfig: teleop_locomani_uni_pi05 (registered in
+# src/openpi/training/config.py).
 #
-# Only the EEF (head-only) track is provided — per request, NO full fine-tune
-# for psi0 on this dataset. Max training steps capped to 20k.
+# Dataset must be materialized at
+# $HF_LEROBOT_HOME/hojjunekim/teleop_locomani_uni/
+# (same path psi0 uses, so a single HF download serves both pi05 and psi0).
+# openpi reads from local disk; norm_stats.json travels inside the dataset dir.
 #
-# sbatch --job-name=teleop_locomani_uni_eef \
-#     longrun_teleop_locomani_uni_psi0.sbatch
+# sbatch pi05-teleop-locomani-full-20000.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -32,9 +31,8 @@ SEG="${1:-1}"
 ############################
 # User config
 #
-# Optional tyro extras (appended AFTER baked-in overrides + grad-accum + 20k cap):
-#   export TELEOP_LOCOMANI_UNI_EXP='...'   # --exp (default teleop-locomani-uni-18state-eef-head)
-#   export PSI0_FINETUNE_EXTRA_ARGS='...'          # extra tyro args (wins via last-value rule)
+# Optional pi05 train.py extras (appended after the config-name):
+#   export PI05_EXTRA_ARGS='--lr_schedule.peak_lr=5e-5 ...'
 ############################
 NGPU=4
 MAX_SEG="${MAX_SEG:-25}"
@@ -52,7 +50,7 @@ if [[ "${SEG}" -gt "${MAX_SEG}" ]]; then
 fi
 
 echo "========== Job =========="
-echo "TRACK=eef (head-only)  SEG=${SEG}/${MAX_SEG}  (18-state, 20k steps)"
+echo "TRACK=full (pi05 full fine-tune)  SEG=${SEG}/${MAX_SEG}"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}  JOB_NAME=${SLURM_JOB_NAME:-}"
 echo "HOSTNAME=$(hostname)  PWD=${PWD}"
 echo "========================="
@@ -62,7 +60,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-teleop_locomani_uni_psi0_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-pi05-teleop-locomani-full-20000}" "$0" "$((SEG + 1))"
 fi
 
 ############################
@@ -105,7 +103,12 @@ srun \
         set +u
         conda activate psi0
         cd /lustre/fsw/portfolios/nvr/projects/nvr_lpr_llm/users/jiankais/Programs/hojune/Psi0-hojune
-        source .venv-psi/bin/activate
+        # pi05 uses a different venv than psi. baselines/pi05/train_pi05.sh
+        # activates .venv-openpi internally, so we do not source it here.
+        # NOTE: this whole block is single-quoted in bash -lc; never put a
+        # literal apostrophe in here or it will close the quote and leak the
+        # following lines (e.g. export CUDA_HOME="${CONDA_PREFIX}") into the
+        # outer shell, where set -u trips on the unset CONDA_PREFIX.
         set -u
         export WANDB_API_KEY=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
         export CUDA_HOME="${CONDA_PREFIX}"
@@ -113,28 +116,20 @@ srun \
         export CPATH="${CONDA_PREFIX}/targets/x86_64-linux/include:${CONDA_PREFIX}/include:${CPATH:-}"
         export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
-        EXP="${TELEOP_LOCOMANI_UNI_EXP:-teleop-locomani-uni-18state-eef-head}"
+        # 20k steps for fair comparison vs psi0 (both at effective bs=512).
+        # decay_steps must match num_train_steps or cosine LR ends at ~50% of
+        # peak instead of reaching decay_lr (1e-8). num_workers=16 unblocks
+        # the GPU from the on-the-fly mp4 decode in the dataloader.
+        #
+        # SAVE_INTERVAL=2500 + --resume mirror the psi0 longrun: each ~4h
+        # segment saves ~3 ckpts (step ~2s), and on requeue the trainer loads
+        # the latest from .runs/openpi-05/<exp_name>/checkpoints/ instead of
+        # re-starting from the pi05_droid base every segment.
+        export SAVE_INTERVAL=2500
+        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume --exp_name=pi05-teleop-locomani-full-20000"
+        EXTRA="${PI05_EXTRA_ARGS:-}"
 
-        # 4xH100 no grad-accum => effective batch = 64*1*4 = 256.
-        # (Larger physical batch is faster per opt step than grad-accum when
-        # head-only FT fits in memory; backbone activations dominate but the
-        # frozen-param Adam state is zero, so room to spare on 80GB.)
-        DEFAULT_GA="--train.gradient_accumulation_steps=1"
-
-        # 20k training steps per request (default in eef.sh is 40k).
-        STEPS_CAP="--train.max_training_steps=20000"
-
-        # Universal-naming + 18-state overrides: parquet uses GR00T-native column
-        # names, video dir is observation.images.ego_view/, 18-D state column
-        # is observation.state_psi0_18. psi/ ignores modality.json so every key
-        # must be flipped via tyro. odim=18 sets state-encoder input dim.
-        UNIFIED_OVERRIDES="--data.transform.repack.image-keys observation.images.ego_view --data.transform.repack.state-key=observation.state_psi0_18 --data.transform.repack.action-key=action.psi0_18 --data.transform.field.stat-state-key=observation.state_psi0_18 --data.transform.field.stat-action-key=action.psi0_18 --model.odim=18 --train.num_workers=8"
-
-        EXTRA="${PSI0_FINETUNE_EXTRA_ARGS:-}"
-
-        bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
-            hojjunekim/teleop_locomani_uni "${EXP}" \
-            ${DEFAULT_GA} ${STEPS_CAP} ${UNIFIED_OVERRIDES} ${EXTRA}
+        bash baselines/pi05/train_pi05.sh teleop_locomani_uni_pi05 ${PI05_OVERRIDES} ${EXTRA}
     ' &
 SRUN_PID=$!
 

@@ -8,23 +8,21 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J teleop_turn_uni_pi05_longrun
+#SBATCH -J pi05-wigs-locomani-align-full-20000
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# OpenPI pi05 FULL fine-tune on the universal-naming TELEOP TURN dataset.
-# TrainConfig: teleop_turn_uni_pi05 (registered in
-# src/openpi/training/config.py, mirrors teleop_locomani_uni_pi05).
+# OpenPI pi05 FULL fine-tune on the wigs sim universal-naming dataset.
+# TrainConfig: wigs_locomani_pi05 (registered in src/openpi/training/config.py).
 #
 # Dataset must be materialized at
-# $HF_LEROBOT_HOME/hojjunekim/teleop_turn_uni/
+# $HF_LEROBOT_HOME/hojjunekim/wigs_locomani_align_uni/
 # (same path psi0 uses, so a single HF download serves both pi05 and psi0).
 # openpi reads from local disk; norm_stats.json travels inside the dataset dir.
 #
-# sbatch --job-name=teleop_turn_uni_pi05 \
-#     longrun_teleop_turn_uni_pi05.sbatch
+# sbatch pi05-wigs-locomani-align-full-20000.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -61,7 +59,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-teleop_turn_uni_pi05_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-pi05-wigs-locomani-align-full-20000}" "$0" "$((SEG + 1))"
 fi
 
 ############################
@@ -119,12 +117,18 @@ srun \
 
         # 20k steps for fair comparison vs psi0 (both at effective bs=512).
         # decay_steps must match num_train_steps or cosine LR ends at ~50% of
-        # peak. num_workers=8 unblocks the GPU from on-the-fly mp4 decode.
+        # peak instead of reaching decay_lr (1e-8). num_workers=16 unblocks
+        # the GPU from the on-the-fly mp4 decode in the dataloader.
+        #
+        # SAVE_INTERVAL=2500 + --resume mirror the psi0 longrun: each ~4h
+        # segment saves ~3 ckpts (step ~2s), and on requeue the trainer loads
+        # the latest from .runs/openpi-05/<exp_name>/checkpoints/ instead of
+        # re-starting from the pi05_droid base every segment.
         export SAVE_INTERVAL=2500
-        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume"
+        PI05_OVERRIDES="--num_train_steps=20000 --lr_schedule.decay_steps=20000 --num_workers=8 --resume --exp_name=pi05-wigs-locomani-align-full-20000"
         EXTRA="${PI05_EXTRA_ARGS:-}"
 
-        bash baselines/pi05/train_pi05.sh teleop_turn_uni_pi05 ${PI05_OVERRIDES} ${EXTRA}
+        bash baselines/pi05/train_pi05.sh wigs_locomani_pi05 ${PI05_OVERRIDES} ${EXTRA}
     ' &
 SRUN_PID=$!
 

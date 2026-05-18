@@ -8,19 +8,25 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J wigs_locomani_align_uni_gr00t_n16_longrun
+#SBATCH -J grootn16-teleop-locomani-20000
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# GR00T-N1.6 G1_LOCO_DOWNSTREAM fine-tune on the WIGS-rendered universal dataset
-# (hojjunekim/wigs_locomani_align_uni). Same workload as
-# longrun_teleop_locomani_uni_gr00t_n16.sbatch but targeting the WIGS-rendered
-# side of the A/B (real teleop vs WIGS render, same task / column schema).
+# GR00T-N1.6 G1_LOCO_DOWNSTREAM fine-tune on the universal-naming TELEOP dataset
+# (hojjunekim/teleop_locomani_uni). The dataset already carries the
+# G1_LOCO_DOWNSTREAM columns (state_g1_loco_32 / action.g1_loco_36) and ships a
+# meta/modality_g1_loco.json sidecar. This sbatch:
+#   1. ensures the base model nvidia/GR00T-N1.6-3B is downloaded locally
+#      (launch_finetune.py reads <base_model_path>/config.json literally),
+#   2. ensures the dataset is downloaded under $HF_LEROBOT_HOME,
+#   3. swaps meta/modality.json -> modality_g1_loco.json (gr00t loader hardcodes
+#      that filename, so the loco modality keys can be picked up), and
+#   4. launches via baselines/gr00t-n1.6/finetune_gr00t.py with the
+#      finetune_teleop_locomani_uni_gr00t_n16 preset.
 #
-# sbatch --job-name=wigs_locomani_align_uni_gr00t_n16 \
-#     longrun_wigs_locomani_align_uni_gr00t_n16.sbatch
+# sbatch grootn16-teleop-locomani-20000.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -41,7 +47,7 @@ if [[ "${SEG}" -gt "${MAX_SEG}" ]]; then
 fi
 
 echo "========== Job =========="
-echo "GR00T-N1.6 G1_LOCO_DOWNSTREAM finetune (WIGS)  SEG=${SEG}/${MAX_SEG}  (20k steps)"
+echo "GR00T-N1.6 G1_LOCO_DOWNSTREAM finetune  SEG=${SEG}/${MAX_SEG}  (20k steps)"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}  JOB_NAME=${SLURM_JOB_NAME:-}"
 echo "HOSTNAME=$(hostname)  PWD=${PWD}"
 echo "========================="
@@ -49,7 +55,7 @@ echo "========================="
 # Pre-schedule next segment (survives SIGTERM / pre-timeout)
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-wigs_locomani_align_uni_gr00t_n16_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-grootn16-teleop-locomani-20000}" "$0" "$((SEG + 1))"
 fi
 
 # Graceful exit handler
@@ -92,19 +98,27 @@ srun \
         export CPATH="${CONDA_PREFIX}/targets/x86_64-linux/include:${CONDA_PREFIX}/include:${CPATH:-}"
         export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
+        # Base model: nvidia/GR00T-N1.6-3B downloaded once to a local dir.
+        # launch_finetune.py loads <base_model_path>/config.json literally, so a
+        # bare HF repo id will not resolve — we need a local snapshot.
         BASE_MODEL_DIR="./checkpoints/base/GR00T-N1.6-3B"
         if [[ ! -f "${BASE_MODEL_DIR}/config.json" ]]; then
             echo "[setup] downloading nvidia/GR00T-N1.6-3B -> ${BASE_MODEL_DIR}"
             hf download nvidia/GR00T-N1.6-3B --local-dir "${BASE_MODEL_DIR}"
         fi
 
-        DATASET_REPO="hojjunekim/wigs_locomani_align_uni"
+        # Dataset: hojjunekim/teleop_locomani_uni. Assumes HF_LEROBOT_HOME set by
+        # the 4-block handoff (defaults to $HOME/.cache/huggingface/lerobot).
+        DATASET_REPO="hojjunekim/teleop_locomani_uni"
         DATASET_PATH="${HF_LEROBOT_HOME:-$HOME/.cache/huggingface/lerobot}/${DATASET_REPO}"
         if [[ ! -f "${DATASET_PATH}/meta/info.json" ]]; then
             echo "[setup] downloading ${DATASET_REPO} -> ${DATASET_PATH}"
             hf download "${DATASET_REPO}" --repo-type dataset --local-dir "${DATASET_PATH}"
         fi
 
+        # Swap modality.json -> modality_g1_loco.json (idempotent).
+        # gr00t loader hardcodes meta/modality.json, so without this swap the
+        # validator in g1_locomanip.py will reject the SONIC default keys.
         if [[ -f "${DATASET_PATH}/meta/modality_g1_loco.json" ]]; then
             if ! cmp -s "${DATASET_PATH}/meta/modality.json" "${DATASET_PATH}/meta/modality_g1_loco.json"; then
                 echo "[setup] swapping meta/modality.json -> modality_g1_loco.json"
@@ -122,7 +136,7 @@ srun \
         EXTRA="${GR00T_FINETUNE_EXTRA_ARGS:-}"
 
         python3 baselines/gr00t-n1.6/finetune_gr00t.py \
-            --preset finetune_wigs_locomani_align_uni_gr00t_n16 \
+            --preset finetune_teleop_locomani_uni_gr00t_n16 \
             --dataset-path "${DATASET_PATH}" \
             ${EXTRA}
     ' &

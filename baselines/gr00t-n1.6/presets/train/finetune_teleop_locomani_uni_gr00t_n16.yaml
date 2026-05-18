@@ -7,7 +7,7 @@ dataset:
 training:
   num_gpus: 4
   max_steps: 20000
-  output_dir: ./checkpoints/gr00t_n16_teleop_locomani_uni
+  output_dir: ./checkpoints/grootn16-teleop-locomani-20000
 extra_args:
   reinit_action_head: true
   use_wandb: true

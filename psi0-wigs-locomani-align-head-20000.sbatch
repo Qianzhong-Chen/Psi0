@@ -8,26 +8,22 @@
 #SBATCH --mem=500G
 #SBATCH --time=04:00:00
 #SBATCH --signal=B:TERM@600
-#SBATCH -J teleop_locomani_uni_psi0_v2_longrun
+#SBATCH -J psi0-wigs-locomani-align-head-20000
 #SBATCH -o logs/%x_%j.out
 #SBATCH -e logs/%x_%j.err
 
 set -euo pipefail
 
-# v2 retrain of Psi0 18-state head-only on the universal-naming TELEOP dataset
-# (hojjunekim/teleop_locomani_uni). Identical config to
-# longrun_teleop_locomani_uni_psi0.sbatch — the only differences are:
-#   - EXP defaults to ...-v2 so we write to a new .runs/finetune/ subdir
-#     instead of resuming/overwriting the broken-data run
-#   - SLURM job name has _v2_ suffix so the singleton chain stays separate
-# The dataset itself was re-uploaded 2026-05-16 with vyaw + idle-pose gripper
-# fixes; this run is the clean retrain on the fixed parquets.
+# Psi0 18-state head-only fine-tune on the wigs sim universal-naming dataset
+# (hojjunekim/wigs_locomani_align_uni). Built by run_collection.sh -> the
+# wigs2universal pipeline, then augmented with observation.state_psi0_18,
+# action.psi0_18, states_18 — same column names as the teleop pipeline, so
+# the existing 18-state finetune script + tyro overrides work unchanged.
 #
-# Refresh the local dataset mirror before submitting:
-#   hf download hojjunekim/teleop_locomani_uni --repo-type dataset \
-#       --local-dir "$HF_LEROBOT_HOME/hojjunekim/teleop_locomani_uni"
+# Only the EEF (head-only) track is provided — per request, NO full fine-tune
+# for psi0 on this dataset. Max training steps capped to 20k.
 #
-# sbatch longrun_teleop_locomani_uni_psi0_v2.sbatch
+# sbatch psi0-wigs-locomani-align-head-20000.sbatch
 #
 # Arg1 SEG — chain segment index (1..MAX_SEG). Passed through by sbatch requeue.
 SEG="${1:-1}"
@@ -36,8 +32,8 @@ SEG="${1:-1}"
 # User config
 #
 # Optional tyro extras (appended AFTER baked-in overrides + grad-accum + 20k cap):
-#   export TELEOP_LOCOMANI_UNI_EXP='...'   # --exp (default teleop-locomani-uni-18state-eef-head-v2)
-#   export PSI0_FINETUNE_EXTRA_ARGS='...'          # extra tyro args (wins via last-value rule)
+#   export WIGS_LOCOMANI_EXP='...'             # --exp (default psi0-wigs-locomani-align-head-20000)
+#   export PSI0_FINETUNE_EXTRA_ARGS='...'      # extra tyro args (wins via last-value rule)
 ############################
 NGPU=4
 MAX_SEG="${MAX_SEG:-25}"
@@ -55,7 +51,7 @@ if [[ "${SEG}" -gt "${MAX_SEG}" ]]; then
 fi
 
 echo "========== Job =========="
-echo "TRACK=eef (head-only) v2 retrain  SEG=${SEG}/${MAX_SEG}  (18-state, 20k steps)"
+echo "TRACK=eef (head-only)  SEG=${SEG}/${MAX_SEG}  (18-state, 20k steps)"
 echo "SLURM_JOB_ID=${SLURM_JOB_ID:-}  JOB_NAME=${SLURM_JOB_NAME:-}"
 echo "HOSTNAME=$(hostname)  PWD=${PWD}"
 echo "========================="
@@ -65,7 +61,7 @@ echo "========================="
 ############################
 if [[ "${SEG}" -lt "${MAX_SEG}" ]]; then
     echo "Scheduling follow-up: SEG=$((SEG + 1)) / MAX_SEG=${MAX_SEG}"
-    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-teleop_locomani_uni_psi0_v2_longrun}" "$0" "$((SEG + 1))"
+    sbatch --dependency=singleton --job-name="${SLURM_JOB_NAME:-psi0-wigs-locomani-align-head-20000}" "$0" "$((SEG + 1))"
 fi
 
 ############################
@@ -116,7 +112,7 @@ srun \
         export CPATH="${CONDA_PREFIX}/targets/x86_64-linux/include:${CONDA_PREFIX}/include:${CPATH:-}"
         export LIBRARY_PATH="${CONDA_PREFIX}/targets/x86_64-linux/lib:${CONDA_PREFIX}/lib:${LIBRARY_PATH:-}"
 
-        EXP="${TELEOP_LOCOMANI_UNI_EXP:-teleop-locomani-uni-18state-eef-head-v2}"
+        EXP="${WIGS_LOCOMANI_EXP:-psi0-wigs-locomani-align-head-20000}"
 
         # 4xH100 no grad-accum => effective batch = 64*1*4 = 256.
         # (Larger physical batch is faster per opt step than grad-accum when
@@ -136,7 +132,7 @@ srun \
         EXTRA="${PSI0_FINETUNE_EXTRA_ARGS:-}"
 
         bash scripts/train/psi0/finetune-real-psi0-18act-eef.sh \
-            hojjunekim/teleop_locomani_uni "${EXP}" \
+            hojjunekim/wigs_locomani_align_uni "${EXP}" \
             ${DEFAULT_GA} ${STEPS_CAP} ${UNIFIED_OVERRIDES} ${EXTRA}
     ' &
 SRUN_PID=$!
