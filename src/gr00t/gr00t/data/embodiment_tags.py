@@ -69,6 +69,13 @@ class EmbodimentTag(Enum):
     G1 upper-body manipulation pretraining embodiment with action horizon 16.
     """
 
+    G1_LOCO_UNI = "g1_loco_uni"
+    """
+    G1 universal upper-body-joint embodiment — schema shared with psi0 / pi05 uni training:
+        state_20  = L_arm(7) + R_arm(7) + waist_rpy(3) + L_grip(1) + R_grip(1) + height(1)
+        action_23 = state_20 + torso_vx(1) + torso_vy(1) + torso_vyaw(1)
+    """
+
     # New embodiment during post-training
     NEW_EMBODIMENT = "new_embodiment"
     """
