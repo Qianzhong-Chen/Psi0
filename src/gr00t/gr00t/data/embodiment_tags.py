@@ -76,6 +76,16 @@ class EmbodimentTag(Enum):
         action_23 = state_20 + torso_vx(1) + torso_vy(1) + torso_vyaw(1)
     """
 
+    G1_EEF_UNI = "g1_eef_uni"
+    """
+    G1 universal upper-body-EEF embodiment — psi0 18-D EEF schema, 8-key split:
+        state_18 == action_18 layout:
+            L_eef_xyz(3) + L_eef_rpy(3) + L_grip(1)
+          + R_eef_xyz(3) + R_eef_rpy(3) + R_grip(1)
+          + base_vel(vx,vy,vyaw)(3) + height(1)
+        State uses prev-step base cmd at [14:17]; action uses current cmd.
+    """
+
     # New embodiment during post-training
     NEW_EMBODIMENT = "new_embodiment"
     """
