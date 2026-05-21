@@ -243,10 +243,10 @@ class FinetuneTrainer(Trainer):
         }
 
         val_dataloader_kwargs = {
-            "num_workers": 12,
+            "num_workers": 4,
             "drop_last": False,
             # "pin_memory": True,
-            "persistent_workers": True,
+            "persistent_workers": False,  # let val workers die between evals; avoids shm/semaphore race when two jobs share a node
             "shuffle": True,
         }  # 1 small enough to fit im Mem. 2. no need distributed sampler
 
