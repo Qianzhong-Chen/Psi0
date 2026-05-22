@@ -1,0 +1,14 @@
+extends: _common_finetune.yaml
+model:
+  base_model_path: ./checkpoints/base/GR00T-N1.6-3B
+dataset:
+  embodiment_tag: G1_EEF_UNI
+  modality_config_path: src/gr00t/gr00t/configs/modality/g1_eef_uni.py
+training:
+  num_gpus: 4
+  max_steps: 20000
+  output_dir: ./checkpoints/grootn16-wigs-turn-fast-eef-20000
+extra_args:
+  reinit_action_head: true
+  use_wandb: true
+launcher: launch_finetune
