@@ -459,7 +459,9 @@ class FinetuneTrainer(Trainer):
             # validation loss
             with accelerator.autocast():
                 val_loss = self.forward_and_loss(eval_model, val_batch)
-                val_loss_list.append(accelerator.gather(val_loss["loss"]))
+                # reshape(-1) so a scalar (0-dim) per-process loss becomes 1-dim;
+                # torch.cat below fails on 0-dim tensors (single-GPU gather case).
+                val_loss_list.append(accelerator.gather(val_loss["loss"]).reshape(-1))
 
                 # action prediction loss
                 pred_actions = self.inference(eval_model, val_batch)

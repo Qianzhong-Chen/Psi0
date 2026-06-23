@@ -21,6 +21,10 @@ CUDA_HOME=$HOME/miniconda3/envs/legs VIRTUAL_ENV=.venv-psi uv pip install flash-
 `/usr/local/cuda` doesn't exist on this machine. Set it at both install time and
 runtime.
 
+**Note:** `CUDA_HOME` is required for the `uv sync` step too (not just flash-attn) —
+a dependency builds a CUDA extension and fails with `CUDA_HOME environment variable
+is not set` otherwise. Prefix the `uv sync` command with `CUDA_HOME=$HOME/miniconda3/envs/legs`.
+
 ### Video decoder
 
 lerobot uses `torchcodec` by default but it's broken on this machine (FFmpeg
@@ -234,4 +238,4 @@ CUDA_VISIBLE_DEVICES=0 CUDA_HOME=$HOME/miniconda3/envs/legs \
 | `Column action not found` | Pass `--data.transform.repack.action-key=action.psi0_18` |
 | `KeyError: 'action'` in stats loading | Pass `--data.transform.field.stat-action-key=action.psi0_18` |
 | `Only one of warmup_steps or warmup_ratio` | Add `--train.warmup_ratio=None` |
-| `zero-dimensional tensor cannot be concatenated` (eval) | Batch size vs dataset size issue; increase `--train.val_num_batches` or dataset size |
+| `zero-dimensional tensor cannot be concatenated` (eval) | Fixed in `src/psi/trainers/finetune.py`: `evaluate()` now does `accelerator.gather(val_loss["loss"]).reshape(-1)` so the scalar per-step loss is 1-dim before `torch.cat` (single-GPU gather keeps it 0-dim otherwise) |

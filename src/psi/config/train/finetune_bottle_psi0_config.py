@@ -50,6 +50,13 @@ class BottleDataConfig(LerobotDataConfig):
     transform: BottleDataTransform = Field(default_factory=BottleDataTransform)
 
 
+class BottleTrainConfig(TrainConfig):
+    # Non-VLM fine-tune (tune_vlm=False): only the action head trains, so the
+    # VLM backbone runs frozen and per-GPU memory is low. 64/GPU fits comfortably
+    # on an L40S (~46GB); sweep showed no OOM up to 48 with headroom to spare.
+    train_batch_size: int = 64
+
+
 class BottleModelConfig(Psi0ModelConfig):
     model_name_or_path: str = "cache/checkpoints/psi0/pre.fast.1by1.2601091803.ckpt.ego200k.he30k"
     pretrained_action_header_path: str = "cache/checkpoints/psi0/postpre.1by1.pad36.2601131206.ckpt.he30k"
@@ -70,5 +77,6 @@ class BottleModelConfig(Psi0ModelConfig):
 
 
 class DynamicLaunchConfig(LaunchConfig):
+    train: BottleTrainConfig = Field(default_factory=BottleTrainConfig)
     data: BottleDataConfig = Field(default_factory=BottleDataConfig)
     model: BottleModelConfig = Field(default_factory=BottleModelConfig)
