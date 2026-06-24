@@ -93,15 +93,44 @@ snapshot_download('USC-PSI-Lab/psi-model', repo_type='model', local_dir='cache/c
 ```bash
 cd ~/LEGS
 
-# Render (legs conda env, GPU):
+# Render (legs conda env, GPU). NOTE: nvcc MUST be on PATH (see below):
 conda activate legs
 cd scripts/data
-python offline_renderer_mp.py --data-dir ../../data/collected/<NAME> --ply sjc13_1 --workers 5
+PATH="$HOME/miniconda3/envs/legs/bin:$PATH" CUDA_HOME=$HOME/miniconda3/envs/legs \
+  python offline_renderer_mp.py --data-dir ../../data/collected/<NAME> --ply sjc13_1 --workers 8
 
-# Build dataset (.venv-openpi):
+# Build dataset (.venv-openpi). NOTE: needs GR00T repo on PYTHONPATH + ffprobe:
 cd ~/LEGS
-scripts/data/wigs2universal.sh data/collected/<NAME> data/lerobot/wigs/<DATASET_NAME> ""
+PYTHONPATH="$HOME/LEGS/submodules/GR00T-WholeBodyControl" \
+  PATH="$HOME/miniconda3/envs/legs/bin:$PATH" \
+  scripts/data/wigs2universal.sh data/collected/<NAME> data/lerobot/wigs/<DATASET_NAME> ""
 ```
+
+**Render gotcha — gsplat "No CUDA toolkit found" / `_C` is None.** gsplat 1.0.0
+JIT-compiles its CUDA ext and gates on bare `nvcc` being resolvable. This
+machine has no `/usr/local/cuda`; nvcc lives in the `legs` conda env. If `nvcc`
+isn't on PATH, gsplat silently disables itself and every frame fails with
+`AttributeError: 'NoneType' object has no attribute 'fully_fused_projection_packed_fwd'`.
+Fix: prepend `$HOME/miniconda3/envs/legs/bin` to PATH (the cached build at
+`~/.cache/torch_extensions/py310_cu128/gsplat_cuda/gsplat_cuda.so` then loads).
+
+**Build env `.venv-openpi` (recreate if missing).** The build scripts need the
+OLD lerobot API (`lerobot.common.datasets`), pinned in
+`GR00T-WholeBodyControl/decoupled_wbc/pyproject.toml` to git
+`a445d9c9da6bea99a8972daa4fe1fdd053d711d2`. `.venv-psi` has the NEW lerobot
+(0.3.3) and can't run the builder. Recreate:
+```bash
+cd ~/LEGS/submodules/Psi0
+uv venv .venv-openpi --python 3.10
+VIRTUAL_ENV=.venv-openpi uv pip install \
+  "lerobot @ git+https://github.com/huggingface/lerobot.git@a445d9c9da6bea99a8972daa4fe1fdd053d711d2" \
+  "datasets==3.6.0" "numpy==1.26.4" scipy pandas pillow torch torchvision av pyarrow tqdm \
+  --index-strategy unsafe-best-match
+# decoupled_wbc import resolves via PYTHONPATH (editable install fails: readme
+# path escapes the package dir), so pass PYTHONPATH=<GR00T root> when building.
+```
+ffprobe/ffmpeg: not in `.venv-openpi`; `wigs2universal.sh` prepends the `legs`
+conda bin if ffprobe isn't already on PATH (so just keep `legs` bin on PATH).
 
 ### 4.2 Rename video column for Psi0 compatibility
 
@@ -239,3 +268,85 @@ CUDA_VISIBLE_DEVICES=0 CUDA_HOME=$HOME/miniconda3/envs/legs \
 | `KeyError: 'action'` in stats loading | Pass `--data.transform.field.stat-action-key=action.psi0_18` |
 | `Only one of warmup_steps or warmup_ratio` | Add `--train.warmup_ratio=None` |
 | `zero-dimensional tensor cannot be concatenated` (eval) | Fixed in `src/psi/trainers/finetune.py`: `evaluate()` now does `accelerator.gather(val_loss["loss"]).reshape(-1)` so the scalar per-step loss is 1-dim before `torch.cat` (single-GPU gather keeps it 0-dim otherwise) |
+| Rendered object wrong color / lying down (pitch 90°) | Offline renderer was a SEPARATE mesh path that ignored sim's per-episode variant + glb orientation. See §8. |
+
+---
+
+## 8. The offline renderer is a SEPARATE path from the sim (mesh AND camera)
+
+**Lesson (cost: multiple full 500-ep re-renders + 3k training steps on wrong data).**
+`scripts/main/simulate_object.py` (what you see live + records) and
+`scripts/data/offline_renderer.py` (what builds the training images) are **two
+fully independent rendering paths**. They each hardcode their own URDF, camera
+intrinsics, resolution, and mesh-loading logic. Changing the sim does NOT change
+the rendered dataset — every sim-side change must be mirrored in the renderer.
+There were FOUR separate drifts here (mesh + camera), all silent:
+
+### 8a. Mesh handling drift
+
+- **Bottle lying on its side (~90° pitch):** offline_renderer unconditionally
+  applied a +90°-about-x "Y-up→Z-up" flip to every `.glb`. The bottle GLBs are
+  already Z-up (`glb_z_up: True` in scene_config); the sim skips the flip, the
+  renderer didn't. Flipping an already-upright mesh lays it down.
+- **Only one bottle color (no green/pink):** offline_renderer built object
+  renderers from the static `get_scene()` config, ignoring the per-episode
+  variant that the sim picks at random and records in
+  `episode_XXXX_scenario.json["objects"][i]["mesh"]`. So every frame used the
+  scene default. It also skipped the green variant's `mesh_extra_rpy` /
+  `mesh_scale` (green `.glb` is y-up + ~30% oversize).
+
+**Fix applied** (renderer-only — collected data + scenario.json were correct):
+- `load_entity_mesh()` now honors `glb_z_up`, `mesh_extra_rpy`, `mesh_scale`
+  (mirrors `simulate_object._load_static_mesh`).
+- New `_resolve_object_entries()` + `build_entity_renderers(scenario=...)` use
+  the per-episode mesh from the scenario and recover that variant's geometry
+  overrides from the scene_cfg `visual_variants` (by matching mesh name).
+- Per-episode renderer cache key `(scene, recorded-object-meshes)` so the
+  green/pink swap actually takes effect (a scene-only key reused ep 0's mesh
+  for the whole dataset).
+
+### 8b. Camera drift (URDF + intrinsics + resolution)
+
+The robot moved to the **ZED 2i rig** (`--camera zed2i`, URDF
+`robots/g1_sjc13/urdf/g1_sjc13.urdf`). The renderer was still on the legacy
+RealSense setup. Three more silent mismatches:
+
+- **Missing camera boxes:** offline_renderer hardcoded the OLD URDF
+  `robots/g1/urdf/g1_29dof_with_hand.urdf`, which has none of the ZED hardware.
+  The g1_sjc13 URDF adds `wrist_cam_{left,right}_link` + `zed2i_chest_link` —
+  box-primitive visuals that are NOT collected as camera views but must appear
+  as **black boxes on the robot** in the ego image. robot_renderer.py already
+  renders box primitives; it just had the wrong URDF. Fixed: `URDF_PATH` →
+  g1_sjc13 (must match simulate_object's `DEFAULT_URDF`).
+- **Wrong intrinsics:** the recorder ALWAYS labels the recorded ego camera
+  `"d435"` regardless of the real sensor, and the renderer keyed
+  `K = D435_REAL_K if cam_name == "d435"`. So the ZED pose was rendered with
+  D435 intrinsics. Fixed: K now comes from a `CAMERA` preset (default `zed2i` →
+  `ZED2I_REAL_K`), NOT the recorded key.
+- **Wrong resolution/aspect (renderer):** renderer hardcoded `W,H = 640,480`
+  (4:3); ZED 2i is `640×360` (16:9). With `IntrinsicsCamera`, K's principal
+  point (cx=319.5, cy=179.5) implies 640×360 — rendering it into a 480-tall
+  viewport shifts the principal point off-center and distorts/crops. Fixed:
+  `EGO_W,EGO_H` from the preset. (fov is ignored when K is set.)
+- **Wrong resolution/aspect (BUILDER — separate from the renderer!):**
+  `scripts/main/utils/sonic_frame_builder.py` ALSO hardcodes the ego image dims
+  `EGO_VIEW_HEIGHT/WIDTH = 480/640`, and `build_sonic_lerobot._load_render_image`
+  RESIZES every render to that shape. So even after the renderer produced correct
+  640×360 frames, the builder squashed them back into 640×480 (16:9 → 4:3) in the
+  LeRobot videos. This is a THIRD copy of the resolution constant. Fixed:
+  `EGO_VIEW_HEIGHT = 360`. **Always verify the built video dims**, not just the
+  rendered frames: `av.open(...).streams.video[0].width/height`.
+
+Override for legacy d435 datasets: `CAMERA=d435 python offline_renderer.py ...`
+AND set `EGO_VIEW_HEIGHT=480` in sonic_frame_builder.py.
+
+**Rule of thumb:** any change to `scene_config.py` / `simulate_object.py`
+(`visual_variants`, mesh orientation/scale, camera preset, URDF, intrinsics,
+resolution) MUST be mirrored in `offline_renderer.py`
+(`load_entity_mesh`, the scenario→entry merge, `URDF_PATH`, `CAMERA_PRESETS`,
+`EGO_K`/`EGO_W`/`EGO_H`). The renderer and sim share NO config — they only
+agree by hand. Always sanity-render ~10 episodes (both variants) to
+`render_test/` and eyeball them **before** rendering all 500 + training:
+`OUT_SUBDIR=render_test python offline_renderer.py --episode <id> --ply sjc13_1 ...`
+(also needs nvcc on PATH — see §4). Check: correct object color/orientation,
+16:9 ZED aspect, and the wrist/chest camera black boxes present.
