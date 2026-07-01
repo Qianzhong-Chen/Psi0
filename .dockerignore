@@ -1,0 +1,14 @@
+# Keep the Docker build context small. Exclude venvs, run outputs, raw data.
+# IMPORTANT: do NOT ignore cache/ — it holds the pretrained psi0 checkpoints
+# the Dockerfile bakes in for training.
+.venv-psi
+.venv-openpi
+.venv
+.runs
+.git
+data
+wandb
+**/__pycache__
+*.pyc
+.pytest_cache
+*.log

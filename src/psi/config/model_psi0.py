@@ -14,6 +14,22 @@ class Psi0ModelConfig(ModelConfig):
     rtc: bool = False
     max_delay: int = 8
 
+    # --- LoRA on the VLM backbone (used when train.lora=True) ---
+    # Hyperparameters follow openpi's choice (gemma.py): rank=16, alpha=16 on
+    # both attention and FFN projections. Set train.lora=True to enable; the VLM
+    # is then wrapped with PEFT LoRA adapters instead of full fine-tuning, so
+    # only the adapters (+ action header) train — fits a 40GB GPU.
+    lora_rank: int = 16
+    lora_alpha: int = 16
+    lora_dropout: float = 0.0
+    # Qwen3VL linear layers to adapt: attention (q/k/v/o) + FFN (gate/up/down).
+    lora_target_modules: List[str] = Field(
+        default_factory=lambda: [
+            "q_proj", "k_proj", "v_proj", "o_proj",
+            "gate_proj", "up_proj", "down_proj",
+        ]
+    )
+
     action_dim: int = 7 #36 # Da
     action_chunk_size: int = 6 #30 # Tp
     action_exec_horizon: int = 6 #30 # Ta

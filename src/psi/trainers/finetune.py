@@ -100,7 +100,29 @@ class FinetuneTrainer(Trainer):
         self.vlm_processor = AutoProcessor.from_pretrained(self.model_cfg.model_name_or_path)
         self.tokenizer = self.vlm_processor.tokenizer
 
-        assert self.cfg.train.lora == False
+        # LoRA: wrap the VLM with PEFT adapters instead of full fine-tuning.
+        # Hyperparameters from model_cfg (default rank/alpha=16 on attn+ffn, per
+        # openpi). Only the LoRA adapters (+ action header) train, so VLM tuning
+        # fits a 40GB GPU. Requires tune_vlm=True so the adapter params stay
+        # trainable in init_models (base weights are frozen by PEFT regardless).
+        if self.cfg.train.lora:
+            from peft import LoraConfig, get_peft_model
+            assert self.model_cfg.tune_vlm, "train.lora=True requires model.tune_vlm=True"
+            lora_cfg = LoraConfig(
+                r=self.model_cfg.lora_rank,
+                lora_alpha=self.model_cfg.lora_alpha,
+                lora_dropout=self.model_cfg.lora_dropout,
+                target_modules=list(self.model_cfg.lora_target_modules),
+                bias="none",
+            )
+            vlm_model = get_peft_model(vlm_model, lora_cfg)
+            overwatch.info(
+                f"Wrapped VLM with LoRA (r={self.model_cfg.lora_rank}, "
+                f"alpha={self.model_cfg.lora_alpha}, "
+                f"targets={self.model_cfg.lora_target_modules})"
+            )
+            if overwatch.is_rank_zero():
+                vlm_model.print_trainable_parameters()
 
         return vlm_model
 
@@ -141,7 +163,12 @@ class FinetuneTrainer(Trainer):
             self.model.config.hidden_size = vlm_model.config.text_config.hidden_size
 
         # Set VLM parameters trainability based on tune_vlm flag
-        if not self.model_cfg.tune_vlm:
+        if self.cfg.train.lora:
+            # PEFT already froze the base VLM weights and left only the LoRA
+            # adapters trainable — don't touch requires_grad here, or we'd
+            # un-freeze the base model and defeat the point of LoRA.
+            overwatch.info("VLM uses LoRA adapters (base frozen, adapters trainable)")
+        elif not self.model_cfg.tune_vlm:
             for p in self.model.vlm_model.parameters():
                 p.requires_grad = False
             overwatch.info("VLM parameters are frozen (tune_vlm=False)")

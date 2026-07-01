@@ -421,8 +421,45 @@ class Trainer(ABC):
                     except Exception as e:
                         overwatch.warning(f"Failed to remove old checkpoint {old_ckpt_path}: {e}")
 
+        # Upload to S3 if the training framework requested it (AWS Batch runs):
+        # the PRG framework exports CHECKPOINT_S3_BUCKET / CHECKPOINT_S3_PREFIX.
+        # Psi0's own save path otherwise only writes the container's local disk,
+        # so checkpoints would be lost when the node is reclaimed. Main process
+        # only; background thread so it doesn't block training.
+        if self.accelerator.is_main_process:
+            self._upload_checkpoint_to_s3(ckpt_dir, global_step)
+
         self.accelerator.wait_for_everyone()
         return ckpt_dir
+
+    def _upload_checkpoint_to_s3(self, ckpt_dir: str, global_step: int) -> None:
+        bucket = os.environ.get("CHECKPOINT_S3_BUCKET", "")
+        prefix = os.environ.get("CHECKPOINT_S3_PREFIX", "")
+        if not bucket:
+            return
+        s3_dest = f"s3://{bucket}/{prefix.rstrip('/')}/ckpt_{global_step}" if prefix \
+            else f"s3://{bucket}/ckpt_{global_step}"
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
+
+        def _sync():
+            import subprocess
+            try:
+                subprocess.run(
+                    ["aws", "s3", "sync", ckpt_dir, s3_dest,
+                     "--region", region, "--only-show-errors"],
+                    check=True,
+                )
+                overwatch.info(f"[ckpt-s3] uploaded {ckpt_dir} -> {s3_dest}")
+            except Exception as e:
+                overwatch.warning(f"[ckpt-s3] upload failed for {ckpt_dir}: {e}")
+
+        import threading
+        t = threading.Thread(target=_sync, name=f"ckpt-s3-{global_step}", daemon=False)
+        t.start()
+        # Track so training can block on pending uploads at exit if desired.
+        if not hasattr(self, "_ckpt_upload_threads"):
+            self._ckpt_upload_threads = []
+        self._ckpt_upload_threads.append(t)
 
     def resume_from_checkpoint(self) -> tuple[int, Optional[str]]:
         """ resume from a checkpoint if specified in the config. 
