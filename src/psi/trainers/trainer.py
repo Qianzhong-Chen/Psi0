@@ -462,14 +462,34 @@ class Trainer(ABC):
         except Exception as e:
             overwatch.warning(f"[ckpt-s3] failed to bundle norm stats: {e}")
 
+    def _bundle_run_config(self, ckpt_dir: str) -> None:
+        """Copy the run's run_config.json + argv.txt into the ckpt dir so each
+        uploaded checkpoint records exactly how it was trained.
+
+        scripts/train.py writes these to the run root (self.project_dir), which
+        lives only on the node's local disk and is lost when the node is
+        reclaimed — so on AWS Batch they never reach S3 otherwise. Copying them
+        into ckpt_dir means the S3 sync carries them along. Best-effort.
+        """
+        try:
+            for name in ("run_config.json", "argv.txt"):
+                src = Path(self.project_dir) / name
+                if src.is_file():
+                    shutil.copy2(src, Path(ckpt_dir) / name)
+            overwatch.info(f"[ckpt-s3] bundled run config into {ckpt_dir}")
+        except Exception as e:
+            overwatch.warning(f"[ckpt-s3] failed to bundle run config: {e}")
+
     def _upload_checkpoint_to_s3(self, ckpt_dir: str, global_step: int) -> None:
         bucket = os.environ.get("CHECKPOINT_S3_BUCKET", "")
         prefix = os.environ.get("CHECKPOINT_S3_PREFIX", "")
         if not bucket:
             return
         # Make the checkpoint self-contained: bundle the norm stats it was
-        # normalized with into <ckpt_dir>/assets/ before syncing.
+        # normalized with into <ckpt_dir>/assets/, plus the run_config.json /
+        # argv.txt describing how it was trained, before syncing.
         self._bundle_norm_stats(ckpt_dir)
+        self._bundle_run_config(ckpt_dir)
         s3_dest = f"s3://{bucket}/{prefix.rstrip('/')}/ckpt_{global_step}" if prefix \
             else f"s3://{bucket}/ckpt_{global_step}"
         region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
