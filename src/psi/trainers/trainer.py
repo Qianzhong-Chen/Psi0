@@ -432,11 +432,44 @@ class Trainer(ABC):
         self.accelerator.wait_for_everyone()
         return ckpt_dir
 
+    def _bundle_norm_stats(self, ckpt_dir: str) -> None:
+        """Copy the dataset's norm stats into <ckpt_dir>/assets/<dataset>/ so the
+        checkpoint is self-contained for deployment (mirrors openpi's assets/).
+
+        Psi0 normalizes from the lerobot dataset's meta/stats.json (bounds), which
+        is NOT part of the model weights — a bare checkpoint is unusable at deploy
+        without it. Copy stats.json (+ norm_stats.json if present) alongside.
+        Best-effort: silently skips if paths can't be resolved.
+        """
+        try:
+            data_cfg = self.cfg.data
+            root_dir = getattr(data_cfg, "root_dir", None)
+            repo_ids = getattr(data_cfg, "train_repo_ids", None)
+            stat_path = getattr(getattr(data_cfg, "transform", None), "field", None)
+            stat_path = getattr(stat_path, "stat_path", None)
+            if not (root_dir and repo_ids and stat_path):
+                return
+            dataset_name = repo_ids[0]
+            ds_root = Path(root_dir) / dataset_name
+            assets_dir = Path(ckpt_dir) / "assets" / dataset_name
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            # the exact stats.json used for normalization (relative to dataset root)
+            for rel in {stat_path, "meta/stats.json", "norm_stats.json"}:
+                src = ds_root / rel
+                if src.is_file():
+                    shutil.copy2(src, assets_dir / Path(rel).name)
+            overwatch.info(f"[ckpt-s3] bundled norm stats into {assets_dir}")
+        except Exception as e:
+            overwatch.warning(f"[ckpt-s3] failed to bundle norm stats: {e}")
+
     def _upload_checkpoint_to_s3(self, ckpt_dir: str, global_step: int) -> None:
         bucket = os.environ.get("CHECKPOINT_S3_BUCKET", "")
         prefix = os.environ.get("CHECKPOINT_S3_PREFIX", "")
         if not bucket:
             return
+        # Make the checkpoint self-contained: bundle the norm stats it was
+        # normalized with into <ckpt_dir>/assets/ before syncing.
+        self._bundle_norm_stats(ckpt_dir)
         s3_dest = f"s3://{bucket}/{prefix.rstrip('/')}/ckpt_{global_step}" if prefix \
             else f"s3://{bucket}/ckpt_{global_step}"
         region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
