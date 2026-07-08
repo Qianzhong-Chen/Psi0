@@ -17,10 +17,10 @@ cd "$PSI0_DIR"
 # --- config (override via args or env) ---
 # Default checkpoint (uncomment the one you want; both merged + lock-base):
 
-# RUN_DIR="${1:-.runs/psi0_legs_0630_pickup_lora}"   
-# 0630 pickup LoRA (10hz), best practice: $ ~/run_psi0_realrobot_bridge.sh --rate 10 --prefetch-frac 0.3 --exec-horizon 15 --enable-publish 
+RUN_DIR="${1:-.runs/psi0_legs_0630_pickup_lora}" # 0630 pickup LoRA (10hz)
+## Best practice: $ run_psi0_realrobot_bridge.sh --rate 10 --prefetch-frac 0.3 --exec-horizon 15 --enable-publish 
  
-RUN_DIR="${1:-.runs/psi0_legs_0701_pickup_lora}"     # 0701 pickup LoRA (30hz)
+# RUN_DIR="${1:-.runs/psi0_legs_0701_pickup_lora}"     # 0701 pickup LoRA (30hz, not working well)
 CKPT_STEP="${2:-17500}"          # merged plain weights (raw LoRA = ckpt_17500_lora_raw)
 PORT="${3:-22085}"
 HOST="${HOST:-0.0.0.0}"

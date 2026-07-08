@@ -25,8 +25,9 @@ cd "$PSI0_DIR"
 
 # --- config (override via args or env) ---
 # Default checkpoint (uncomment the one you want; both merged + base-unlocked):
-# RUN_DIR="${1:-.runs/psi0_legs_0703_locomani_lora}"; CKPT_STEP="${2:-20000}"  # 0703 loco-manip (prev)
 RUN_DIR="${1:-.runs/psi0_legs_0706_locomani_lora}"; CKPT_STEP="${2:-22500}"    # 0706 loco-manip LoRA (current)
+## Best practice: $ run_psi0_realrobot_bridge.sh  --rate 10 --prefetch-frac 0.0  --exec-horizon 30 --enable-publish
+
 
 PORT="${3:-22085}"
 HOST="${HOST:-0.0.0.0}"
