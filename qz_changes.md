@@ -350,3 +350,138 @@ agree by hand. Always sanity-render ~10 episodes (both variants) to
 `OUT_SUBDIR=render_test python offline_renderer.py --episode <id> --ply sjc13_1 ...`
 (also needs nvcc on PATH — see §4). Check: correct object color/orientation,
 16:9 ZED aspect, and the wrist/chest camera black boxes present.
+
+---
+
+## 9. CURRENT DEFAULT: Psi0 training on AWS Batch (LEGS → ws_groot_training)
+
+This is the **standard workflow now** (supersedes the §6 single-GPU local recipe
+for real runs — local is only for quick debugging). Model = Psi0 18-D EEF head +
+Qwen3VL-2B backbone; the backbone trains as **vision LoRA** (not full-finetune),
+action head trains fully.
+
+### 9.1 The default recipe (what "same as last time" means)
+- **VLM: vision LoRA** — `tune_vlm=true` + `lora=true`, rank=16, alpha=16,
+  dropout=0.0, targets `[q,k,v,o,gate,up,down]_proj` (openpi-style). ~17.4M
+  trainable params → fits A100 40GB with bs=24/GPU.
+- **RTC: OFF** (`rtc=false` → `--model.no-rtc`). Verify in logs: the launched
+  accelerate command shows `--model.no-rtc` (not `--model.rtc`).
+- **lr = 5e-5**, cosine, warmup 500, bf16, DDP (data-split only), 8 GPUs.
+- **Steps: use N+100, not N** (e.g. 20100 for "20k", 30100 for "30k"). The loop
+  stops AT `max_training_steps` and checkpoints at multiples of
+  `checkpointing_steps` (2500); asking for exactly 30000 can end at step 29999 and
+  **skip the ckpt_30000 save**. The +100 guarantees the round checkpoint lands.
+- config module: `finetune_real_psi0_config`; batch=24/GPU; action_dim=18, odim=15,
+  chunk/exec=30, obs_horizon=1, noise=flow, diffusion_steps=1000, view_dim=2048,
+  norm=bounds, resize/crop 240×320, img-aug on.
+
+### 9.2 The pipeline (config templates live in ws_groot_training)
+Framework: `~/ws_groot_training/src/Lab126PRGModelTrainingScripts` (the `train`
+CLI → builds a 2-layer Docker image → AWS Batch). Per-dataset artifacts, all
+committed as working examples:
+- `configs/psi0/legs_<date>_<task>_lora.yaml` — the training config (copy the
+  latest, e.g. `legs_0706_locomani_lora.yaml`; change `s3_paths`, `dataset_name`,
+  `exp_name`, `s3_upload_path`, `max_training_steps`).
+- `launch_psi0_<date>_lora.sh` — refreshes ada creds, uploads config to S3,
+  `train submit … --config-uri … --config-region us-west-2`.
+
+Steps for a new dataset:
+1. **Build + upload dataset** (from LEGS repo): render → `wigs2universal.sh` →
+   `aws s3 sync … s3://qzchen-ws/legs/dataset/<name>_uni`. **Validate first** (see
+   §10 — two silent build gotchas that crash the container).
+2. **Copy config + launch script**, edit the dataset/step/exp fields.
+3. **Submit** (image already in ECR — no rebuild unless Psi0 code changed):
+   ```bash
+   cd ~/ws_groot_training/src/Lab126PRGModelTrainingScripts
+   export WANDB_API_KEY=<key>; export WANDB_PROJECT=psi
+   IMG=311141550854.dkr.ecr.us-west-2.amazonaws.com/lab126coromanipulationvla:psi0-training-main-f999406-20260701-141236
+   aws s3 cp configs/psi0/<cfg>.yaml s3://qzchen-ws/legs/configs/<cfg>.yaml --profile coro-manipulation --region us-west-2
+   train submit configs/psi0/<cfg>.yaml --backend batch --instance p4d \
+     --name psi0-lora-<name> --no-push --image "$IMG" \
+     --config-uri s3://qzchen-ws/legs/configs/<cfg>.yaml --config-region us-west-2
+   ```
+   The container runs `python -m training.cli local <cfg>`; it downloads the
+   config from `TRAINING_CONFIG_URI`, syncs the dataset, then the psi0 adapter
+   (`models/psi0/train.py`) builds an `accelerate launch scripts/train.py …`
+   subprocess. Monitor via wandb (project `psi`) — a NEW run appears once it
+   clears dataset-load into the training loop.
+
+### 9.3 How LoRA is applied AFTER loading the pretrained ckpt (the mechanism)
+Order matters — LoRA wraps the VLM **after** the pretrained weights are loaded, so
+adapters start from a trained backbone:
+1. `init_qwen3vl_models()` loads the pretrained VLM
+   (`--model.model_name_or_path=cache/checkpoints/psi0/pre.fast…`) into `vlm_model`.
+2. **Then**, if `train.lora`: `from peft import LoraConfig, get_peft_model` →
+   `vlm_model = get_peft_model(vlm_model, LoraConfig(r,alpha,dropout,target_modules,
+   bias="none"))`. Asserts `tune_vlm=True` (adapters must be trainable). Log line:
+   `Wrapped VLM with LoRA (r=16, alpha=16, targets=[…])`.
+3. Action head loads its own pretrained weights
+   (`--model.pretrained-action-header-path=…postpre…`) and trains **fully** (LoRA
+   is VLM-only). A size-mismatch warning on the header ("only loaded transformer
+   blocks") is expected/benign.
+4. `init_models()`: when `lora`, does NOT touch `requires_grad` (PEFT already froze
+   base + unfroze adapters). Final log: `Model has 507M trainable parameters`
+   (~17.4M LoRA + the full action head).
+All in `src/psi/trainers/finetune.py`; LoRA hyperparams default in
+`src/psi/config/model_psi0.py` (rank/alpha=16, dropout 0, 7 target_modules).
+
+### 9.4 Checkpoints auto-upload to S3, self-contained (code fix in trainer.py)
+Psi0 originally saved checkpoints **local-disk only** → lost on Batch node
+teardown (the framework doesn't upload for you; gr00t/openpi model code does).
+`src/psi/trainers/trainer.py` now, in `save_checkpoint` (main process, background
+thread), calls `_upload_checkpoint_to_s3()` which reads
+`CHECKPOINT_S3_BUCKET`/`CHECKPOINT_S3_PREFIX` (the framework runner exports these
+from the config's `checkpoint.s3_upload_path`) and `aws s3 sync`s
+`ckpt_<step>` → `s3://<bucket>/<prefix>/ckpt_<step>`. Before syncing it bundles two
+things so the ckpt is **self-contained for deployment**:
+- `_bundle_norm_stats()` → copies the dataset's `meta/stats.json` (+ `norm_stats.json`)
+  into `<ckpt>/assets/<dataset>/` (openpi-style; psi0 otherwise has NO stats — it
+  relies on the lerobot dataset's stats at the transform layer).
+- `_bundle_run_config()` → copies the run's `run_config.json` + `argv.txt` into the
+  ckpt so it records exactly how it was trained.
+Result on S3: `ckpt_<step>/{model.safetensors, optimizer.bin, scheduler.bin,
+random_states_*, assets/<dataset>/{stats,norm_stats}.json, run_config.json, argv.txt}`.
+**This code lives in the fork and is baked into image `f999406`** — a run only gets
+it if the image contains it (rebuild via `train submit --push --model-code-dir
+~/LEGS/submodules/Psi0` when Psi0 code changes). Also note: the FINAL checkpoint
+can still be lost if the job SUCCEEDS and the node is reclaimed before the last
+background sync finishes — the round-number step (§9.1) plus the periodic saves
+mean the last *saved* ckpt (e.g. 30000) is safe; only a trailing partial is at risk.
+
+### 9.5 GPU / queue availability (verified 2026-07-07)
+| Queue | GPU | Status |
+|---|---|---|
+| `gr00t-p4d-24xlarge-queue` | A100 40GB | ✅ stable — **default** |
+| `robometer-train-p4de-queue` | A100 **80GB** | ✅ works (`--instance p4de --job-queue robometer-train-p4de-queue`) |
+| `gr00t-p5-48xlarge-queue` | H100 | ⚠️ `InsufficientInstanceCapacity` (CE pinned to single subnet us-west-2a; needs 2b/2c/2d subnets added) |
+| `gr00t-p5en-48xlarge-queue` | H100 | ❌ dead — launch template pins a **deleted** capacity reservation |
+| Greenland (WagenDevelopment / P4DInitiative) | A100 40GB only | ✅ ~96 idle A100s; **NO H100** allocated to us |
+
+No working H100 path currently. psi0 A100 step time ≈ **0.9 s/step** (p4d, bs 24×8);
+30k steps ≈ 8 h. See LEGS `qz_changes.md` for the H100/Greenland investigation detail.
+
+---
+
+## 10. Two silent LeRobot-build gotchas that crash the AWS container
+
+Both bit datasets built via `wigs2universal.sh` (the standalone path). ALWAYS
+validate a freshly-built dataset before submitting (`.venv-openpi` python):
+
+1. **parquet feature `_type: "List"` vs `"Sequence"`.** `build_sonic_lerobot`
+   (via the Gr00tDataExporter) can embed HF feature metadata as `"_type": "List"`
+   (newer `datasets`), which the container's older `datasets` can't parse →
+   `ValueError: Feature type 'List' not found`. Physical arrow type is identical
+   (`fixed_size_list`). **Fix:** rewrite each parquet's `b"huggingface"` schema
+   metadata `"_type": "List"` → `"Sequence"` (script pattern:
+   read_table → replace_schema_metadata → write back). Check:
+   `pq.read_schema(f).metadata[b'huggingface']` for `"_type": "List"`.
+2. **video key `ego_view` vs `egocentric`.** `build_sonic_lerobot` writes
+   `observation.images.ego_view`, but Psi0's transform hardcodes
+   `observation.images.egocentric` → `KeyError: Column …egocentric not in the
+   dataset`. **Fix (now idempotent in `wigs2universal.sh`):** `mv` the video dir +
+   rename the feature key in `meta/info.json`. GR00T reads `modality_gr00t_sonic.json`
+   (keeps ego_view, unaffected); psi0 reads `modality_psi0.json` (already `egocentric`).
+
+Validation one-liner: load `data_dir=<ds>/data` with `datasets.load_dataset("parquet")`
+(catches gotcha 1), and confirm `info.json` video key + video dir are `egocentric`
+(gotcha 2), plus fps and `observation.state_psi0`/`action.psi0_18` present.
