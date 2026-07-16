@@ -24,14 +24,21 @@ PSI0_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PSI0_DIR"
 
 # --- config (override via args or env) ---
-# Default checkpoint (uncomment the one you want; both merged + base-unlocked):
-RUN_DIR="${1:-.runs/psi0_legs_0706_locomani_lora}"; CKPT_STEP="${2:-22500}"    # 0706 loco-manip LoRA (current)
+# Default checkpoint (uncomment the one you want; all merged + base-unlocked):
+# RUN_DIR="${1:-.runs/psi0_legs_0706_locomani_lora}"; CKPT_STEP="${2:-30000}"  # 0706 loco-manip LoRA @30k (prev)
+
+# RUN_DIR="${1:-.runs/psi0_legs_0715_locomani_lora_chunk30}"; CKPT_STEP="${2:-22500}"    # 0715 loco-manip chunk30 @22.5k (current)
 ## Best practice: $ run_psi0_realrobot_bridge.sh  --rate 10 --prefetch-frac 0.0  --exec-horizon 30 --enable-publish
 
+RUN_DIR="${1:-.runs/psi0_legs_0715_locomani_lora_chunk20}"; CKPT_STEP="${2:-22500}"  # 0715 loco-manip chunk20 @22.5k
+# Best @ 0715: $ PROMPT="walk to the table and pick up the bottle" ./run_psi0_realrobot_bridge.sh --rate 10 --prefetch-frac 0.0 --exec-horizon 10 --enable-publish 
 
 PORT="${3:-22085}"
 HOST="${HOST:-0.0.0.0}"
-ACTION_EXEC_HORIZON="${ACTION_EXEC_HORIZON:-30}"
+# Empty by default -> server uses the checkpoint's own action_exec_horizon (20 for
+# chunk20, 30 for chunk30). Do NOT hardcode 30: the server asserts exec_horizon <=
+# chunk_size, so 30 crashes a chunk20 ckpt. Override via env only if you know the size.
+ACTION_EXEC_HORIZON="${ACTION_EXEC_HORIZON:-}"
 UPRIGHT_HEIGHT="${UPRIGHT_HEIGHT:-0.78}"
 
 # Base is ALWAYS unlocked for loco-manip. Height unlocked by default; LOCK_HEIGHT=1
@@ -50,7 +57,7 @@ echo "=== Psi0 loco-manip LoRA server (18-D, RTC off, merged, no aug, BASE UNLOC
 echo "    run_dir   : $RUN_DIR"
 echo "    ckpt_step : $CKPT_STEP   (merged plain weights)"
 echo "    port      : $PORT   (host $HOST)"
-echo "    horizon   : $ACTION_EXEC_HORIZON"
+echo "    horizon   : ${ACTION_EXEC_HORIZON:-<from ckpt config>}"
 echo "    base      : UNLOCKED (policy vx/vy/vyaw drive SONIC locomotion)"
 echo "    height    : $HEIGHT_DESC"
 echo "    GPU       : $CUDA_VISIBLE_DEVICES"
@@ -58,13 +65,20 @@ echo "    health    : curl -s localhost:$PORT/health"
 echo "    NOTE: RTC is off (config); run the bridge in sequential chunk playback."
 echo "==============================================================================="
 
+# Build optional args: only pass --action-exec-horizon if explicitly set (else the
+# server uses the ckpt's own value, which is always <= chunk_size and thus safe).
+EXTRA_ARGS=()
+if [ -n "$ACTION_EXEC_HORIZON" ]; then
+    EXTRA_ARGS+=(--action-exec-horizon "$ACTION_EXEC_HORIZON")
+fi
+
 exec .venv-psi/bin/python src/psi/deploy/psi0_serve_real_lockbase.py \
     --host "$HOST" \
     --port "$PORT" \
     --policy psi0 \
     --run-dir "$RUN_DIR" \
     --ckpt-step "$CKPT_STEP" \
-    --action-exec-horizon "$ACTION_EXEC_HORIZON" \
+    "${EXTRA_ARGS[@]}" \
     --upright-height "$UPRIGHT_HEIGHT" \
     --no-lock-base \
     "$HEIGHT_FLAG"
